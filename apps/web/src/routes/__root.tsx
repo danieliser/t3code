@@ -37,6 +37,7 @@ import {
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { applyAppearanceFontVariables } from "~/appearanceFonts";
 import { applyAppearanceContrast } from "~/appearanceContrast";
+import { useMarkFirstSeenCompletedThreadsUnread } from "../hooks/useMarkFirstSeenCompletedThreadsUnread";
 import { useClientSettings } from "../hooks/useSettings";
 import { PlanAgentSelectionHeal } from "../planAgentSelectionHeal";
 import {
@@ -426,6 +427,8 @@ function EventRouter({
 }: {
   readonly skipInitialBootstrapNavigation: boolean;
 }) {
+  useMarkFirstSeenCompletedThreadsUnread();
+
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
