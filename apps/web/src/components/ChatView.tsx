@@ -133,7 +133,6 @@ import {
   togglePendingUserInputOptionSelection,
   type PendingUserInputDraftAnswer,
 } from "../pendingUserInput";
-import { useUiStateStore } from "../uiStateStore";
 import {
   latestWorkspaceMutationId,
   useWorkspaceMutationRefresh,
@@ -154,6 +153,7 @@ import {
   type SessionPhase,
   type Thread,
 } from "../types";
+import { useMarkActiveThreadVisited } from "../hooks/useMarkActiveThreadVisited";
 import { useTheme } from "../hooks/useTheme";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isCommandPaletteOpen } from "../commandPaletteBus";
@@ -1465,6 +1465,10 @@ export default function ChatView(props: ChatViewProps) {
   const routeThreadState = useEnvironmentThread(
     routeKind === "server" ? routeThreadRef.environmentId : null,
     routeKind === "server" ? routeThreadRef.threadId : null,
+  );
+  useMarkActiveThreadVisited(
+    routeKind === "server" ? routeThreadKey : null,
+    activeServerThread?.latestTurn?.completedAt ?? null,
   );
   const loadEarlierTurns = useMemo(() => {
     if (routeKind !== "server" || !threadHasOlderTurns(routeThreadState)) {
