@@ -33,7 +33,6 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import { FetchHttpClient, HttpClient } from "effect/unstable/http";
@@ -70,7 +69,8 @@ export const COMMON_DEV_PORTS: ReadonlyArray<number> = Object.freeze([
   3000, 3001, 3333, 4173, 4200, 4321, 5000, 5173, 5174, 5175, 5500, 8000, 8080, 8081, 8888, 9000,
 ]);
 
-const POLL_INTERVAL = Duration.seconds(3);
+const ACTIVE_POLL_INTERVAL = Duration.seconds(10);
+const IDLE_POLL_INTERVAL = Duration.seconds(20);
 const LSOF_TIMEOUT_MS = 5_000;
 const WINDOWS_LISTENER_TIMEOUT_MS = 5_000;
 const WEB_PROBE_TIMEOUT = Duration.seconds(1);
@@ -181,6 +181,9 @@ const projectWebProbeSnapshot = (
   }
   return [...visibleByServer.values()].toSorted((left, right) => left.port - right.port);
 };
+
+const processIdsEqual = (left: ReadonlySet<number>, right: ReadonlySet<number>): boolean =>
+  left.size === right.size && [...left].every((processId) => right.has(processId));
 
 const parseLsofOutput = (
   raw: string,
@@ -578,9 +581,24 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
     ),
   );
 
-  // Single layer-scoped polling fiber. Ticks are no-ops when no client is
-  // currently retained, so the cost is one Ref.get every POLL_INTERVAL.
-  yield* Effect.forkScoped(pollTick().pipe(Effect.repeat(Schedule.spaced(POLL_INTERVAL))));
+  // Keep broad listener discovery as a fallback, but avoid a system-wide lsof
+  // process every three seconds while the app is otherwise idle. Terminal PID
+  // changes trigger immediate scans below; the periodic loop is only the
+  // safety net for listeners started outside a managed terminal.
+  yield* Effect.forkScoped(
+    Effect.gen(function* () {
+      while (true) {
+        const state = yield* Ref.get(stateRef);
+        const hasActiveServer = [...state.listeners.values()].some(
+          (subscription) => subscription.lastSnapshot.length > 0,
+        );
+        yield* Effect.sleep(
+          state.retainCount > 0 && hasActiveServer ? ACTIVE_POLL_INTERVAL : IDLE_POLL_INTERVAL,
+        );
+        yield* pollTick();
+      }
+    }),
+  );
 
   const acquireRetention = Effect.fn("PortDiscovery.retain")(function* () {
     const wasIdle = yield* Ref.modify(stateRef, (state) => [
@@ -589,7 +607,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
     ]);
     if (wasIdle) {
       // Run an immediate scan + broadcast so the new retainer doesn't have
-      // to wait up to POLL_INTERVAL for the first emission.
+      // to wait up to IDLE_POLL_INTERVAL for the first emission.
       yield* pollTick();
     }
   });
@@ -630,26 +648,33 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
       const processIds = new Set(
         input.processIds.filter((processId) => Number.isInteger(processId) && processId > 0),
       );
-      yield* Ref.update(stateRef, (state) => {
+      const changed = yield* Ref.modify(stateRef, (state) => {
         const terminalProcesses = new Map(state.terminalProcesses);
         const key = terminalOwnerKey(owner);
+        const existing = terminalProcesses.get(key);
+        if (existing && processIdsEqual(existing.processIds, processIds)) {
+          return [false, state] as const;
+        }
         if (processIds.size === 0) {
+          if (!existing) return [false, state] as const;
           terminalProcesses.delete(key);
         } else {
           terminalProcesses.set(key, { owner, processIds });
         }
-        return { ...state, terminalProcesses };
+        return [true, { ...state, terminalProcesses }] as const;
       });
+      if (changed) yield* pollTick();
     });
 
   const unregisterTerminal: PortDiscovery["Service"]["unregisterTerminal"] = Effect.fn(
     "PortDiscovery.unregisterTerminal",
   )(function* (input) {
-    yield* Ref.update(stateRef, (state) => {
+    const changed = yield* Ref.modify(stateRef, (state) => {
       const terminalProcesses = new Map(state.terminalProcesses);
-      terminalProcesses.delete(terminalOwnerKey(input));
-      return { ...state, terminalProcesses };
+      const removed = terminalProcesses.delete(terminalOwnerKey(input));
+      return [removed, removed ? { ...state, terminalProcesses } : state] as const;
     });
+    if (changed) yield* pollTick();
   });
 
   return PortDiscovery.of({

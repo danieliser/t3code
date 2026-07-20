@@ -665,3 +665,37 @@ effectIt.effect("does not swallow process probe interruption", () =>
     }
   }),
 );
+
+effectIt("does not rescan unchanged terminal registrations", () => {
+  let probeCount = 0;
+  const layer = makeProbeFailureLayer(() =>
+    Effect.sync(() => {
+      probeCount += 1;
+      return {
+        stdout: "",
+        stderr: "",
+        code: null,
+        timedOut: false,
+        stdoutTruncated: false,
+        stderrTruncated: false,
+      };
+    }),
+  );
+
+  return Effect.gen(function* () {
+    const scanner = yield* PortScanner.PortDiscovery;
+    yield* scanner.subscribe({ configuredUrls: [], initialSnapshot: [] }, () => Effect.void);
+    yield* scanner.retain;
+    yield* scanner.registerTerminalProcesses({
+      threadId: "thread-1",
+      terminalId: "terminal-1",
+      processIds: [42],
+    });
+    yield* scanner.registerTerminalProcesses({
+      threadId: "thread-1",
+      terminalId: "terminal-1",
+      processIds: [42],
+    });
+    expect(probeCount).toBe(2);
+  }).pipe(Effect.provide(layer));
+});
