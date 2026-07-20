@@ -33,6 +33,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
+import * as Semaphore from "effect/Semaphore";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import { FetchHttpClient, HttpClient } from "effect/unstable/http";
@@ -297,6 +298,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const hostPlatform = yield* HostProcessPlatform;
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.withScope);
+  const notificationLock = yield* Semaphore.make(1);
   const stateRef = yield* Ref.make<ScannerState>({
     listeners: new Map(),
     terminalProcesses: new Map(),
@@ -561,20 +563,24 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
         ),
       ];
       const snapshot = yield* scanSnapshot(configuredUrls);
-      const notifications = yield* Ref.modify(stateRef, (state) => {
-        const listeners = new Map(state.listeners);
-        const changed: Array<readonly [Listener, ReadonlyArray<DiscoveredLocalServer>]> = [];
-        for (const [listener, subscription] of listeners) {
-          const next = projectWebProbeSnapshot(snapshot, subscription.configuredUrls);
-          if (serversEqual(subscription.lastSnapshot, next)) continue;
-          listeners.set(listener, { ...subscription, lastSnapshot: next });
-          changed.push([listener, next]);
-        }
-        return [changed, { ...state, listeners }];
-      });
-      yield* Effect.forEach(notifications, ([listener, servers]) => listener(servers), {
-        discard: true,
-      });
+      yield* notificationLock.withPermit(
+        Effect.gen(function* () {
+          const notifications = yield* Ref.modify(stateRef, (state) => {
+            const listeners = new Map(state.listeners);
+            const changed: Array<readonly [Listener, ReadonlyArray<DiscoveredLocalServer>]> = [];
+            for (const [listener, subscription] of listeners) {
+              const next = projectWebProbeSnapshot(snapshot, subscription.configuredUrls);
+              if (serversEqual(subscription.lastSnapshot, next)) continue;
+              listeners.set(listener, { ...subscription, lastSnapshot: next });
+              changed.push([listener, next]);
+            }
+            return [changed, { ...state, listeners }];
+          });
+          yield* Effect.forEach(notifications, ([listener, servers]) => listener(servers), {
+            discard: true,
+          });
+        }),
+      );
     },
     Effect.catchCause((cause: Cause.Cause<never>) =>
       Effect.logWarning("preview port scan failed", Cause.pretty(cause)),
@@ -622,20 +628,24 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   const subscribe: PortDiscovery["Service"]["subscribe"] = Effect.fn("PortDiscovery.subscribe")(
     (input, listener) =>
       Effect.acquireRelease(
-        Ref.update(stateRef, (state) => {
-          const listeners = new Map(state.listeners);
-          listeners.set(listener, {
-            configuredUrls: normalizeConfiguredUrls(input.configuredUrls),
-            lastSnapshot: input.initialSnapshot,
-          });
-          return { ...state, listeners };
-        }),
-        () =>
+        notificationLock.withPermit(
           Ref.update(stateRef, (state) => {
             const listeners = new Map(state.listeners);
-            listeners.delete(listener);
+            listeners.set(listener, {
+              configuredUrls: normalizeConfiguredUrls(input.configuredUrls),
+              lastSnapshot: input.initialSnapshot,
+            });
             return { ...state, listeners };
           }),
+        ),
+        () =>
+          notificationLock.withPermit(
+            Ref.update(stateRef, (state) => {
+              const listeners = new Map(state.listeners);
+              listeners.delete(listener);
+              return { ...state, listeners };
+            }),
+          ),
       ),
   );
 

@@ -11,6 +11,7 @@ import * as Net from "@t3tools/shared/Net";
 import * as Cause from "effect/Cause";
 import * as Clock from "effect/Clock";
 import * as Duration from "effect/Duration";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -699,3 +700,73 @@ effectIt("does not rescan unchanged terminal registrations", () => {
     expect(probeCount).toBe(2);
   }).pipe(Effect.provide(layer));
 });
+
+effectIt("serializes concurrent snapshot broadcasts", () =>
+  Effect.gen(function* () {
+    const replayStarted = yield* Deferred.make<void>();
+    const releaseReplay = yield* Deferred.make<void>();
+    const secondProbeCompleted = yield* Deferred.make<void>();
+    const secondDeliveryStarted = yield* Deferred.make<void>();
+    const deliveries: Array<ReadonlyArray<number>> = [];
+    let probeCount = 0;
+    let deliveryCount = 0;
+    const layer = makeProbeFailureLayer(
+      () =>
+        Effect.gen(function* () {
+          probeCount += 1;
+          if (probeCount === 2) {
+            yield* Deferred.succeed(secondProbeCompleted, undefined).pipe(Effect.ignore);
+          }
+          return {
+            stdout: probeCount === 1 ? "p100\ncnode\nn*:3000\n" : "p101\ncnode\nn*:3001\n",
+            stderr: "",
+            code: null,
+            timedOut: false,
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          };
+        }),
+      (() =>
+        Promise.resolve(
+          new Response("app", { headers: { "content-type": "text/html" } }),
+        )) as typeof globalThis.fetch,
+    );
+
+    yield* Effect.gen(function* () {
+      const scanner = yield* PortScanner.PortDiscovery;
+      yield* scanner.subscribe(
+        { configuredUrls: [], initialSnapshot: [] },
+        (servers) =>
+          Effect.gen(function* () {
+            deliveryCount += 1;
+            if (deliveryCount === 1) {
+              yield* Deferred.succeed(replayStarted, undefined).pipe(Effect.ignore);
+              yield* Deferred.await(releaseReplay);
+            } else {
+              yield* Deferred.succeed(secondDeliveryStarted, undefined).pipe(Effect.ignore);
+            }
+            deliveries.push(servers.map((server) => server.port));
+          }),
+      );
+      const retention = yield* scanner.retain.pipe(Effect.forkScoped);
+      yield* Deferred.await(replayStarted);
+
+      const registration = yield* scanner
+        .registerTerminalProcesses({
+          threadId: "thread-1",
+          terminalId: "terminal-1",
+          processIds: [101],
+        })
+        .pipe(Effect.forkScoped);
+      yield* Deferred.await(secondProbeCompleted);
+      yield* Effect.yieldNow;
+      expect(yield* Deferred.isDone(secondDeliveryStarted)).toBe(false);
+
+      yield* Deferred.succeed(releaseReplay, undefined);
+      yield* Fiber.join(retention);
+      yield* Fiber.join(registration);
+
+      expect(deliveries).toEqual([[3000], [3001]]);
+    }).pipe(Effect.provide(layer));
+  }),
+);
