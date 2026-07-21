@@ -34,6 +34,7 @@ import * as ConnectionWakeups from "../connection/wakeups.ts";
 import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as RpcSession from "../rpc/session.ts";
+import { EnvironmentShellMembership, type ShellThreadMembership } from "./shellMembership.ts";
 import {
   EMPTY_ENVIRONMENT_THREAD_STATE,
   makeEnvironmentThreadState,
@@ -138,6 +139,7 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
   readonly cached?: OrchestrationThread;
   readonly httpSnapshot?: Option.Option<OrchestrationThreadDetailSnapshot>;
   readonly completionMarker?: boolean;
+  readonly shellMembership?: ShellThreadMembership;
   readonly resumeCache?: NonNullable<Parameters<typeof makeEnvironmentThreadState>[1]>;
   readonly loadCached?: Effect.Effect<Option.Option<OrchestrationThreadDetailSnapshot>>;
   readonly saveThread?: Persistence.EnvironmentCacheStore["Service"]["saveThread"];
@@ -232,10 +234,16 @@ const makeHarness = Effect.fn("TestEnvironmentThreads.makeHarness")(function* (o
     clearVcsRefs: () => Effect.void,
     clear: () => Effect.void,
   });
+  const shellMembership = EnvironmentShellMembership.of({
+    getThreadMembership: () => Effect.succeed(options?.shellMembership ?? "unknown"),
+    setAuthoritative: () => Effect.void,
+    setUnknown: () => Effect.succeed(0),
+  });
   const threadState = yield* makeEnvironmentThreadState(THREAD_ID, options?.resumeCache).pipe(
     Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
     Effect.provideService(Persistence.EnvironmentCacheStore, cache),
     Effect.provideService(ThreadSnapshotLoader, snapshotLoader),
+    Effect.provideService(EnvironmentShellMembership, shellMembership),
     Effect.provideService(
       ConnectionWakeups.ConnectionWakeups,
       ConnectionWakeups.ConnectionWakeups.of({ changes: Stream.fromQueue(wakeups) }),
