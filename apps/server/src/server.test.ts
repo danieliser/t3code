@@ -8275,8 +8275,8 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
       );
 
       assertTrue(result._tag === "Failure");
-      assertTrue(result.failure._tag === "OrchestrationGetSnapshotError");
-      assert.equal(result.failure.reason, "not-found");
+      assertTrue(result.failure._tag === "OrchestrationThreadNotFoundError");
+      assert.equal(result.failure.threadId, defaultThreadId);
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
