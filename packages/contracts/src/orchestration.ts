@@ -1919,6 +1919,7 @@ export class OrchestrationGetSnapshotError extends Schema.TaggedErrorClass<Orche
   {
     message: TrimmedNonEmptyString,
     cause: Schema.optional(Schema.Defect()),
+    reason: Schema.optional(Schema.Literal("not-found")),
   },
 ) {}
 

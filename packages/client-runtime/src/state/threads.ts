@@ -1,5 +1,6 @@
 import {
   ORCHESTRATION_WS_METHODS,
+  OrchestrationGetSnapshotError,
   type EnvironmentId as EnvironmentIdType,
   type OrchestrationThread,
   type OrchestrationThreadDetailPage,
@@ -9,11 +10,13 @@ import {
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
 import * as Semaphore from "effect/Semaphore";
+import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { Atom } from "effect/unstable/reactivity";
@@ -28,6 +31,7 @@ import { ThreadSnapshotLoader, type ThreadSnapshotWindow } from "./threadSnapsho
 import { parseThreadKey, threadKey } from "./entities.ts";
 import { applyThreadDetailEvent } from "./threadReducer.ts";
 import { THREAD_SNAPSHOT_IDLE_TTL_MS } from "./threadRetention.ts";
+import { EnvironmentShellMembership } from "./shellMembership.ts";
 import { followStreamInEnvironment } from "./runtime.ts";
 import {
   EMPTY_ENVIRONMENT_THREAD_STATE,
@@ -126,6 +130,17 @@ function formatThreadError(cause: Cause.Cause<unknown>): string {
     : "Could not synchronize the thread.";
 }
 
+const isOrchestrationGetSnapshotError = Schema.is(OrchestrationGetSnapshotError);
+
+function isMissingThreadFailure(cause: Cause.Cause<unknown>): boolean {
+  return cause.reasons.some(
+    (reason) =>
+      reason._tag === "Fail" &&
+      isOrchestrationGetSnapshotError(reason.error) &&
+      reason.error.reason === "not-found",
+  );
+}
+
 function shouldPersistThread(thread: OrchestrationThread): boolean {
   const status = thread.session?.status;
   return status !== "starting" && status !== "running";
@@ -182,6 +197,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
   const supervisor = yield* EnvironmentSupervisor;
   const cache = yield* EnvironmentCacheStore;
   const snapshotLoader = yield* ThreadSnapshotLoader;
+  const shellMembership = yield* EnvironmentShellMembership;
   const wakeups = yield* Effect.serviceOption(ConnectionWakeups.ConnectionWakeups);
   const environmentId = supervisor.target.environmentId;
   const retained = resumeCache?.snapshot;
@@ -266,6 +282,7 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
     readonly epoch: number;
   } | null>(null);
   const persistence = yield* Queue.sliding<OrchestrationThreadDetailSnapshot>(1);
+  const deletedSignal = yield* Deferred.make<void>();
 
   const persist = Effect.fn("EnvironmentThreadState.persist")(function* (
     snapshot: OrchestrationThreadDetailSnapshot,
@@ -419,6 +436,20 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
         ),
       ),
     );
+    yield* Deferred.succeed(deletedSignal, undefined);
+  });
+
+  const handleStreamFailure = Effect.fn("EnvironmentThreadState.handleStreamFailure")(function* (
+    cause: Cause.Cause<unknown>,
+  ) {
+    if (isMissingThreadFailure(cause)) {
+      const membership = yield* shellMembership.getThreadMembership(environmentId, threadId);
+      if (membership === "absent") {
+        yield* setDeleted();
+        return;
+      }
+    }
+    yield* setStreamError(formatThreadError(cause));
   });
 
   // Body of applyItem, running under applyLock.
@@ -769,11 +800,11 @@ export const makeEnvironmentThreadState = Effect.fn("EnvironmentThreadState.make
       }),
       {
         onDefect: () => setStreamError("Could not synchronize the thread."),
-        onExpectedFailure: (cause) => setStreamError(formatThreadError(cause)),
+        onExpectedFailure: handleStreamFailure,
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEach(applyItem)),
+    ).pipe(Stream.runForEach(applyItem), Effect.raceFirst(Deferred.await(deletedSignal))),
   );
 
   // Expose loadOlderTurns to UI actions through the request registry.
@@ -839,7 +870,11 @@ function threadStateChanges(
 
 export function createEnvironmentThreadStateAtoms<R, E>(
   runtime: Atom.AtomRuntime<
-    EnvironmentRegistry | EnvironmentCacheStore | ThreadSnapshotLoader | R,
+    | EnvironmentRegistry
+    | EnvironmentCacheStore
+    | EnvironmentShellMembership
+    | ThreadSnapshotLoader
+    | R,
     E
   >,
 ) {
