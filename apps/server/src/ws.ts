@@ -1647,7 +1647,7 @@ const makeWsRpcLayer = (
               // contain unrelated or pruned streams. Keep an explicit upper
               // bound so events after the captured head stay in the live tail.
               if (input.afterSequence !== undefined) {
-                const thread = yield* projectionSnapshotQuery
+                const activeThread = yield* projectionSnapshotQuery
                   .getThreadShellById(input.threadId)
                   .pipe(
                     Effect.mapError(
@@ -1658,7 +1658,21 @@ const makeWsRpcLayer = (
                         }),
                     ),
                   );
-                if (Option.isNone(thread)) {
+                const archivedThreadExists = Option.isNone(activeThread)
+                  ? yield* projectionSnapshotQuery.getArchivedShellSnapshot().pipe(
+                      Effect.map((snapshot) =>
+                        snapshot.threads.some((thread) => thread.id === input.threadId),
+                      ),
+                      Effect.mapError(
+                        (cause) =>
+                          new OrchestrationGetSnapshotError({
+                            message: `Failed to load archived threads for ${input.threadId}`,
+                            cause,
+                          }),
+                      ),
+                    )
+                  : false;
+                if (Option.isNone(activeThread) && !archivedThreadExists) {
                   return yield* new OrchestrationThreadNotFoundError({
                     threadId: input.threadId,
                   });
