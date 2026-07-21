@@ -1647,6 +1647,23 @@ const makeWsRpcLayer = (
               // contain unrelated or pruned streams. Keep an explicit upper
               // bound so events after the captured head stay in the live tail.
               if (input.afterSequence !== undefined) {
+                const thread = yield* projectionSnapshotQuery
+                  .getThreadShellById(input.threadId)
+                  .pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new OrchestrationGetSnapshotError({
+                          message: `Failed to load thread ${input.threadId}`,
+                          cause,
+                        }),
+                    ),
+                  );
+                if (Option.isNone(thread)) {
+                  return yield* new OrchestrationThreadNotFoundError({
+                    threadId: input.threadId,
+                  });
+                }
+
                 const afterSequence = input.afterSequence;
                 const headSequence = yield* orchestrationEngine.latestSequence;
                 const range = {

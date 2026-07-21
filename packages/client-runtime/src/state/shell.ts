@@ -20,7 +20,7 @@ import { EnvironmentSupervisor } from "../connection/supervisor.ts";
 import * as ConnectionWakeups from "../connection/wakeups.ts";
 import { safeErrorLogAttributes } from "../errors/safeLog.ts";
 import { EnvironmentCacheStore } from "../platform/persistence.ts";
-import { subscribeDynamic } from "../rpc/client.ts";
+import { subscribeDynamicWithContext } from "../rpc/client.ts";
 import type { RpcSession } from "../rpc/session.ts";
 import { ShellSnapshotLoader } from "./shellSnapshotHttp.ts";
 import { applyShellStreamEvent } from "./shellReducer.ts";
@@ -77,18 +77,17 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   const lastAuthoritativeSession = yield* Ref.make<RpcSession | null>(null);
   const activeSubscriptionSession = yield* Ref.make<RpcSession | null>(null);
   const persistence = yield* Queue.sliding<OrchestrationShellSnapshot>(1);
-  const activeMembershipRevision = yield* Ref.make<ShellMembershipRevision>(0);
   const invalidateMembership = Option.match(shellMembership, {
     onNone: () => Effect.succeed<ShellMembershipRevision>(0),
     onSome: (service) => service.setUnknown(environmentId),
   });
-  const setMembershipAuthoritative = (snapshot: OrchestrationShellSnapshot) =>
+  const setMembershipAuthoritative = (
+    snapshot: OrchestrationShellSnapshot,
+    revision: ShellMembershipRevision,
+  ) =>
     Option.match(shellMembership, {
       onNone: () => Effect.void,
-      onSome: (service) =>
-        Ref.get(activeMembershipRevision).pipe(
-          Effect.flatMap((revision) => service.setAuthoritative(environmentId, snapshot, revision)),
-        ),
+      onSome: (service) => service.setAuthoritative(environmentId, snapshot, revision),
     });
 
   const persist = Effect.fn("EnvironmentShellState.persist")(function* (
@@ -126,7 +125,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     status: "synchronizing" as const,
     error: Option.none(),
   }));
-  const setSynchronizing = invalidateMembership.pipe(Effect.andThen(setSynchronizingState));
+  const setSynchronizing = setSynchronizingState;
   const setReady = SubscriptionRef.update(state, (current) =>
     current.status === "live"
       ? current
@@ -158,6 +157,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
   // writes, but each write includes every event in that batch.
   const applyItems = Effect.fn("EnvironmentShellState.applyItems")(function* (
     items: ReadonlyArray<OrchestrationShellStreamItem>,
+    membershipRevision: ShellMembershipRevision,
   ) {
     const initial = yield* SubscriptionRef.get(state);
     let waiting = yield* Ref.get(awaitingCompletion);
@@ -193,7 +193,7 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
     if (next === initial) return;
     yield* SubscriptionRef.set(state, next);
     if (next.status === "live" && Option.isSome(next.snapshot)) {
-      yield* setMembershipAuthoritative(next.snapshot.value);
+      yield* setMembershipAuthoritative(next.snapshot.value, membershipRevision);
     }
     if (receivedSnapshot) {
       const session = yield* Ref.get(activeSubscriptionSession);
@@ -212,9 +212,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
       service.changes.pipe(Stream.filter(ConnectionWakeups.shouldResubscribeAfterWakeup)),
   });
 
+  yield* invalidateMembership;
   yield* setSynchronizing;
   yield* Effect.forkScoped(
-    subscribeDynamic(
+    subscribeDynamicWithContext(
       ORCHESTRATION_WS_METHODS.subscribeShell,
       Effect.fn("EnvironmentShellState.makeSubscribeInput")(function* (session) {
         yield* Ref.set(activeSubscriptionSession, session);
@@ -224,7 +225,6 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         );
         yield* Ref.set(awaitingCompletion, supportsCompletionMarker);
         const membershipRevision = yield* invalidateMembership;
-        yield* Ref.set(activeMembershipRevision, membershipRevision);
         yield* setSynchronizingState;
 
         // Foreground resubscriptions on the same live session can resume from
@@ -250,7 +250,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
           );
           const httpSnapshot = yield* snapshotLoader.load(prepared);
           if (Option.isSome(httpSnapshot)) {
-            yield* applyItems([{ kind: "snapshot", snapshot: httpSnapshot.value }]);
+            yield* applyItems(
+              [{ kind: "snapshot", snapshot: httpSnapshot.value }],
+              membershipRevision,
+            );
             canResume = true;
             current = yield* SubscriptionRef.get(state);
           }
@@ -259,7 +262,10 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
         // If the authoritative refresh failed, omit the cached cursor so the
         // socket fallback sends a complete snapshot for this new session.
         if (!canResume || Option.isNone(current.snapshot)) {
-          return supportsCompletionMarker ? { requestCompletionMarker: true as const } : {};
+          return [
+            supportsCompletionMarker ? { requestCompletionMarker: true as const } : {},
+            membershipRevision,
+          ] as const;
         }
         if (!supportsCompletionMarker) {
           // Without a completion marker there is no synchronized signal for a
@@ -269,18 +275,30 @@ export const makeEnvironmentShellState = Effect.fn("EnvironmentShellState.make")
             status: "live" as const,
             error: Option.none(),
           }));
+          yield* setMembershipAuthoritative(current.snapshot.value, membershipRevision);
         }
-        return {
-          afterSequence: current.snapshot.value.snapshotSequence,
-          ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
-        };
+        return [
+          {
+            afterSequence: current.snapshot.value.snapshotSequence,
+            ...(supportsCompletionMarker ? { requestCompletionMarker: true as const } : {}),
+          },
+          membershipRevision,
+        ] as const;
       }),
       {
         onExpectedFailure: (cause) => setStreamError(Cause.squash(cause)),
         retryExpectedFailureAfter: "250 millis",
         resubscribe: foregroundResubscriptions,
       },
-    ).pipe(Stream.runForEachArray(applyItems)),
+    ).pipe(
+      Stream.runForEachArray((taggedItems) =>
+        Effect.forEach(
+          taggedItems,
+          ([item, membershipRevision]) => applyItems([item], membershipRevision),
+          { discard: true },
+        ),
+      ),
+    ),
   );
   yield* SubscriptionRef.changes(supervisor.state).pipe(
     Stream.runForEach((connectionState) => {
