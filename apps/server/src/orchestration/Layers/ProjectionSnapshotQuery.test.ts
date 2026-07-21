@@ -898,6 +898,9 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
       );
       assert.equal(archivedShellSnapshot.threads[0]?.archivedAt, "2026-04-06T00:00:06.000Z");
       assert.deepEqual(archivedShellSnapshot.threads[0]?.branchPullRequest, branchPullRequest);
+      assert.isTrue(yield* snapshotQuery.hasThreadById(ThreadId.make("thread-active")));
+      assert.isTrue(yield* snapshotQuery.hasThreadById(ThreadId.make("thread-archived")));
+      assert.isFalse(yield* snapshotQuery.hasThreadById(ThreadId.make("thread-missing")));
       const activeContext = yield* snapshotQuery.getThreadRuntimeContext(
         ThreadId.make("thread-active"),
       );
@@ -910,6 +913,7 @@ projectionSnapshotLayer("ProjectionSnapshotQuery", (it) => {
         );
       }
       yield* sql`UPDATE projection_threads SET deleted_at = '2026-04-06T00:00:08.000Z' WHERE thread_id = 'thread-active'`;
+      assert.isFalse(yield* snapshotQuery.hasThreadById(ThreadId.make("thread-active")));
       assert.equal(
         (yield* snapshotQuery.getThreadRuntimeContext(ThreadId.make("thread-active")))._tag,
         "None",

@@ -1167,6 +1167,19 @@ const makeProjectionSnapshotQuery = Effect.gen(function* () {
     `,
   });
 
+  const getNonDeletedThreadIdById = SqlSchema.findOneOption({
+    Request: ThreadIdLookupInput,
+    Result: ProjectionThreadIdLookupRowSchema,
+    execute: ({ threadId }) =>
+      sql`
+        SELECT thread_id AS "threadId"
+        FROM projection_threads
+        WHERE thread_id = ${threadId}
+          AND deleted_at IS NULL
+        LIMIT 1
+      `,
+  });
+
   const listThreadMessageRowsByThread = SqlSchema.findAll({
     Request: ThreadIdLookupInput,
     Result: ProjectionThreadMessageDbRowSchema,
@@ -2973,6 +2986,17 @@ pending_approval_requests AS (
     }));
   });
 
+  const hasThreadById: ProjectionSnapshotQueryShape["hasThreadById"] = (threadId) =>
+    getNonDeletedThreadIdById({ threadId }).pipe(
+      Effect.map(Option.isSome),
+      Effect.mapError(
+        toPersistenceSqlOrDecodeError(
+          "ProjectionSnapshotQuery.hasThreadById:query",
+          "ProjectionSnapshotQuery.hasThreadById:decodeRow",
+        ),
+      ),
+    );
+
   // Contiguous turn range bounding a windowed detail read; undefined loads the
   // full thread. Resolved from a window request inside the snapshot
   // transaction (see getThreadDetailSnapshot).
@@ -3413,6 +3437,7 @@ pending_approval_requests AS (
     getThreadCheckpointContext,
     getFullThreadDiffContext,
     getThreadShellById,
+    hasThreadById,
     getThreadRuntimeContext,
     getTurnStartMessage,
     getThreadDetailById,
