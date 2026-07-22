@@ -13,6 +13,7 @@ import {
   FileDiffIcon,
   FolderIcon,
   FolderClosedIcon,
+  GitBranchIcon,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { DiffStatLabel, hasNonZeroStat } from "./DiffStatLabel";
@@ -25,6 +26,7 @@ const EMPTY_DIRECTORY_OVERRIDES: Record<string, boolean> = {};
 export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   turnId: TurnId;
   files: ReadonlyArray<TurnDiffFileChange>;
+  gitFiles?: ReadonlyArray<TurnDiffFileChange>;
   allDirectoriesExpanded: boolean;
   resolvedTheme: "light" | "dark";
   onToggleAllDirectories: () => void;
@@ -33,12 +35,14 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
   const {
     turnId,
     files,
+    gitFiles = [],
     allDirectoriesExpanded,
     resolvedTheme,
     onToggleAllDirectories,
     onOpenTurnDiff,
   } = props;
   const summaryStat = useMemo(() => summarizeTurnDiffStats(files), [files]);
+  const gitSummaryStat = useMemo(() => summarizeTurnDiffStats(gitFiles), [gitFiles]);
   const hasDirectories = files.some((file) => /[/\\]/.test(file.path));
 
   return (
@@ -118,6 +122,22 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
         resolvedTheme={resolvedTheme}
         onOpenTurnDiff={onOpenTurnDiff}
       />
+      {gitFiles.length > 0 ? (
+        <div className="flex items-center gap-1.5 rounded-b-lg border-t border-border/40 px-3 py-2 text-muted-foreground/80">
+          <GitBranchIcon aria-hidden="true" className="size-3.5 shrink-0" />
+          <span className="truncate font-mono text-[11px]">
+            Updated via git — {gitFiles.length} file{gitFiles.length === 1 ? "" : "s"}
+          </span>
+          {hasNonZeroStat(gitSummaryStat) ? (
+            <span className="ml-auto shrink-0 font-mono text-[10px] tabular-nums">
+              <DiffStatLabel
+                additions={gitSummaryStat.additions}
+                deletions={gitSummaryStat.deletions}
+              />
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 });

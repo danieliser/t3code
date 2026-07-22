@@ -258,6 +258,27 @@ const make = Effect.gen(function* () {
     // reflects files created or deleted during this turn.
     yield* workspaceEntries.refresh(input.cwd);
 
+    // Best-effort attribution is only meaningful when the pre-turn baseline
+    // exists. Any failure leaves files unattributed so agent work is never
+    // hidden by an optimistic classification.
+    const attribution = fromCheckpointExists
+      ? yield* checkpointStore
+          .attributeCheckpointDiff({
+            cwd: input.cwd,
+            fromCheckpointRef,
+            toCheckpointRef: targetCheckpointRef,
+          })
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("failed to attribute checkpoint diff", {
+                threadId: input.threadId,
+                turnId: input.turnId,
+                detail: error.message,
+              }).pipe(Effect.as(null)),
+            ),
+          )
+      : null;
+
     // Git may have been initialized during this turn, leaving no pre-turn
     // snapshot. Keep the completion checkpoint for future turns, but do not
     // invent a baseline or attempt a diff against a ref that does not exist.
@@ -279,6 +300,7 @@ const make = Effect.gen(function* () {
           kind: "modified" as const,
           additions: file.additions,
           deletions: file.deletions,
+          ...(attribution ? { origin: attribution.get(file.path) ?? "agent" } : {}),
         })),
       ),
       Effect.tapError((error) =>

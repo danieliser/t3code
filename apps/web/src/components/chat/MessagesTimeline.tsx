@@ -76,6 +76,7 @@ import {
   resolveDiffThemeName,
   resolveFileDiffPath,
 } from "../../lib/diffRendering";
+import { partitionTurnDiffFiles } from "../../lib/turnDiffTree";
 import { PREFERRED_HIGHLIGHTER } from "../../lib/syntaxHighlighting";
 import ChatMarkdown, { ChatMarkdownAssetImage } from "../ChatMarkdown";
 import { T3Wordmark } from "../T3Wordmark";
@@ -2200,13 +2201,14 @@ const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection(
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
 }) {
   if (!turnSummary) return null;
-  const checkpointFiles = turnSummary.files;
-  if (checkpointFiles.length === 0) return null;
+  if (turnSummary.files.length === 0) return null;
+  const { agentFiles, gitFiles } = partitionTurnDiffFiles(turnSummary.files);
 
   return (
     <AssistantChangedFilesSectionInner
       turnSummary={turnSummary}
-      checkpointFiles={checkpointFiles}
+      checkpointFiles={agentFiles}
+      gitFiles={gitFiles}
       routeThreadKey={routeThreadKey}
       resolvedTheme={resolvedTheme}
       onOpenTurnDiff={onOpenTurnDiff}
@@ -2219,12 +2221,14 @@ const AssistantChangedFilesSection = memo(function AssistantChangedFilesSection(
 function AssistantChangedFilesSectionInner({
   turnSummary,
   checkpointFiles,
+  gitFiles,
   routeThreadKey,
   resolvedTheme,
   onOpenTurnDiff,
 }: {
   turnSummary: TurnDiffSummary;
   checkpointFiles: TurnDiffSummary["files"];
+  gitFiles: TurnDiffSummary["files"];
   routeThreadKey: string;
   resolvedTheme: "light" | "dark";
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
@@ -2239,6 +2243,7 @@ function AssistantChangedFilesSectionInner({
     <ChangedFilesCard
       turnId={turnSummary.turnId}
       files={checkpointFiles}
+      gitFiles={gitFiles}
       allDirectoriesExpanded={allDirectoriesExpanded}
       resolvedTheme={resolvedTheme}
       onToggleAllDirectories={() =>
