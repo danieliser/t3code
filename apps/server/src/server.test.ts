@@ -9773,6 +9773,110 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
   );
 
+  it.effect("delivers threads created by another client after the initial shell snapshot", () =>
+    Effect.gen(function* () {
+      const newThreadId = ThreadId.make("thread-created-after-pairing");
+      const now = "2026-01-01T00:00:00.000Z";
+      const liveEvents = yield* PubSub.unbounded<OrchestrationEvent>();
+      const synchronized = yield* Deferred.make<void>();
+      const threadCreated = yield* Ref.make(false);
+      const createdEvent: OrchestrationEvent = {
+        sequence: 1,
+        eventId: EventId.make("event-created-after-pairing"),
+        aggregateKind: "thread",
+        aggregateId: newThreadId,
+        occurredAt: now,
+        commandId: CommandId.make("command-created-by-other-client"),
+        causationEventId: null,
+        correlationId: null,
+        metadata: {},
+        type: "thread.created",
+        payload: {} as never,
+      };
+
+      yield* buildAppUnderTest({
+        layers: {
+          orchestrationEngine: {
+            streamDomainEvents: Stream.fromPubSub(liveEvents),
+            dispatch: () =>
+              Ref.set(threadCreated, true).pipe(
+                Effect.andThen(PubSub.publish(liveEvents, createdEvent)),
+                Effect.as({ sequence: createdEvent.sequence }),
+              ),
+          },
+          projectionSnapshotQuery: {
+            getShellSnapshot: () =>
+              Effect.succeed({
+                snapshotSequence: 0,
+                projects: makeDefaultOrchestrationReadModel().projects,
+                threads: [makeDefaultOrchestrationThreadShell()],
+                updatedAt: now,
+              }),
+            getThreadShellById: (threadId) =>
+              Ref.get(threadCreated).pipe(
+                Effect.map((created) =>
+                  created && threadId === newThreadId
+                    ? Option.some(
+                        makeDefaultOrchestrationThreadShell({
+                          id: newThreadId,
+                          title: "Created after pairing",
+                        }),
+                      )
+                    : Option.none(),
+                ),
+              ),
+          },
+        },
+      });
+
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const received = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const subscriber = yield* withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.subscribeShell]({
+              requestCompletionMarker: true,
+            }).pipe(
+              Stream.tap((item) =>
+                item.kind === "synchronized"
+                  ? Deferred.succeed(synchronized, undefined).pipe(Effect.ignore)
+                  : Effect.void,
+              ),
+              Stream.filter(
+                (item) => item.kind === "thread-upserted" && item.thread.id === newThreadId,
+              ),
+              Stream.runHead,
+            ),
+          ).pipe(Effect.forkScoped);
+
+          yield* Deferred.await(synchronized);
+          yield* withWsRpcClient(wsUrl, (client) =>
+            client[ORCHESTRATION_WS_METHODS.dispatchCommand]({
+              type: "thread.create",
+              commandId: CommandId.make("command-created-by-other-client"),
+              threadId: newThreadId,
+              projectId: defaultProjectId,
+              title: "Created after pairing",
+              modelSelection: defaultModelSelection,
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: null,
+              createdAt: now,
+            }),
+          );
+
+          return yield* Fiber.join(subscriber);
+        }),
+      ).pipe(Effect.timeout("2 seconds"));
+
+      const item = Option.getOrThrow(received);
+      assert.equal(item.kind, "thread-upserted");
+      if (item.kind === "thread-upserted") {
+        assert.equal(item.thread.id, newThreadId);
+      }
+    }).pipe(Effect.provide(NodeHttpServer.layerTest), TestClock.withLive),
+  );
+
   it.effect("subscribeShell coalescing still emits a removal for a deleted thread", () =>
     Effect.gen(function* () {
       const goneThreadId = ThreadId.make("thread-gone");
