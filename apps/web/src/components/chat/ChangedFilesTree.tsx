@@ -50,7 +50,9 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
       className="@container/changed-files mt-4 rounded-lg bg-secondary dark:bg-input/20"
       data-changed-files-state="tree"
     >
-      <div
+      {files.length > 0 ? (
+        <>
+          <div
         data-changed-files-header=""
         className="sticky top-2 z-10 flex items-center justify-between gap-2 rounded-t-lg bg-secondary px-3 py-2 dark:bg-[color-mix(in_srgb,var(--input)_20%,var(--background))]"
       >
@@ -113,15 +115,17 @@ export const ChangedFilesCard = memo(function ChangedFilesCard(props: {
             <TooltipPopup side="top">Open the full diff</TooltipPopup>
           </Tooltip>
         </div>
-      </div>
-      <ChangedFilesTree
-        key={`${turnId}:${allDirectoriesExpanded}`}
-        turnId={turnId}
-        files={files}
-        allDirectoriesExpanded={allDirectoriesExpanded}
-        resolvedTheme={resolvedTheme}
-        onOpenTurnDiff={onOpenTurnDiff}
-      />
+          </div>
+          <ChangedFilesTree
+            key={`${turnId}:${allDirectoriesExpanded}`}
+            turnId={turnId}
+            files={files}
+            allDirectoriesExpanded={allDirectoriesExpanded}
+            resolvedTheme={resolvedTheme}
+            onOpenTurnDiff={onOpenTurnDiff}
+          />
+        </>
+      ) : null}
       {gitFiles.length > 0 ? (
         <div className="flex items-center gap-1.5 rounded-b-lg border-t border-border/40 px-3 py-2 text-muted-foreground/80">
           <GitBranchIcon aria-hidden="true" className="size-3.5 shrink-0" />
