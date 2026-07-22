@@ -4918,6 +4918,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         ),
       ).pipe(Effect.forkChild);
 
+      yield* Effect.yieldNow;
       yield* TestClock.adjust(Duration.seconds(5));
 
       const availableEditors = yield* Fiber.join(responseFiber);
