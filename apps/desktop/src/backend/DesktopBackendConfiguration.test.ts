@@ -295,6 +295,73 @@ describe("DesktopBackendConfiguration", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
+  it.effect(
+    "resolvePrimary defaults packaged backend NODE_OPTIONS and preserves an explicit value",
+    () =>
+      withHarness(
+        Effect.gen(function* () {
+          const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+          const previousNodeOptions = process.env.NODE_OPTIONS;
+
+          try {
+            delete process.env.NODE_OPTIONS;
+            const defaultConfig = yield* configuration.resolvePrimary;
+            assert.equal(defaultConfig.env.NODE_OPTIONS, "--max-old-space-size=8192");
+
+            process.env.NODE_OPTIONS = "--trace-warnings --max-old-space-size=12288";
+            const explicitConfig = yield* configuration.resolvePrimary;
+            assert.equal(
+              explicitConfig.env.NODE_OPTIONS,
+              "--trace-warnings --max-old-space-size=12288",
+            );
+
+            delete process.env.NODE_OPTIONS;
+            const wslConfig = yield* configuration.resolveWsl({ port: 5000, distro: null });
+            assert.isUndefined(wslConfig.env.NODE_OPTIONS);
+          } finally {
+            restoreEnv("NODE_OPTIONS", previousNodeOptions);
+          }
+        }),
+      ),
+  );
+
+  it.effect("resolvePrimary leaves NODE_OPTIONS unset for development backends", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-backend-config-test-",
+      });
+      const previousNodeOptions = process.env.NODE_OPTIONS;
+
+      try {
+        delete process.env.NODE_OPTIONS;
+        const config = yield* Effect.gen(function* () {
+          const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+          return yield* configuration.resolvePrimary;
+        }).pipe(
+          Effect.provide(
+            DesktopBackendConfiguration.layer.pipe(
+              Layer.provideMerge(serverExposureLayer),
+              Layer.provideMerge(DesktopAppSettings.layerTest()),
+              Layer.provideMerge(DesktopWslServerTree.layerTest()),
+              Layer.provideMerge(DesktopWslEnvironment.layerTest()),
+              Layer.provideMerge(
+                makeEnvironmentLayer(baseDir, {
+                  isPackaged: false,
+                  devServerUrl: "http://127.0.0.1:5733",
+                }),
+              ),
+            ),
+          ),
+        );
+
+        assert.isUndefined(config.env.NODE_OPTIONS);
+      } finally {
+        restoreEnv("NODE_OPTIONS", previousNodeOptions);
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("resolveWsl reuses the primary's bootstrap token", () =>
     withHarness(
       Effect.gen(function* () {

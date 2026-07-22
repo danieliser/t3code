@@ -87,6 +87,8 @@ const DESKTOP_BACKEND_ENV_NAMES = [
   "T3CODE_TAILSCALE_SERVE_PORT",
 ] as const;
 
+const DEFAULT_PACKAGED_BACKEND_NODE_OPTIONS = "--max-old-space-size=8192";
+
 // Sensitive env vars that the WSL backend needs but Windows process.env won't
 // forward across the wsl.exe boundary without WSLENV. The dev-server URL is
 // handled separately via a `--dev-url` CLI flag because WSLENV translation of
@@ -506,6 +508,11 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       cwd: environment.backendCwd,
       env: {
         ...backendChildEnvPatch(),
+        ...(environment.isPackaged
+          ? {
+              NODE_OPTIONS: process.env.NODE_OPTIONS ?? DEFAULT_PACKAGED_BACKEND_NODE_OPTIONS,
+            }
+          : {}),
         ELECTRON_RUN_AS_NODE: "1",
       },
       // Primary wants process.env (PATH, dev-runner's T3CODE_HOME, etc.).
