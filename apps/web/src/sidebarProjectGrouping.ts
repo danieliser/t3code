@@ -1,6 +1,10 @@
 import { scopedProjectKey, scopeProjectRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentId, ScopedProjectRef } from "@t3tools/contracts";
-import { buildProjectGroups, type ProjectGroupingSettings } from "./logicalProject";
+import {
+  buildProjectGroups,
+  derivePhysicalProjectKey,
+  type ProjectGroupingSettings,
+} from "./logicalProject";
 import type { Project } from "./types";
 
 export type EnvironmentPresence = "local-only" | "remote-only" | "mixed";
@@ -44,17 +48,15 @@ export function buildFlatSidebarProjectSnapshot(
   }
 
   const membersByKey = new Map<string, SidebarProjectGroupMember>();
-  const projectRefsByKey = new Map<string, ScopedProjectRef>();
   for (const project of projects) {
     for (const member of project.memberProjects) {
       membersByKey.set(scopedProjectKey(scopeProjectRef(member.environmentId, member.id)), member);
     }
-    for (const projectRef of project.memberProjectRefs) {
-      projectRefsByKey.set(scopedProjectKey(projectRef), projectRef);
-    }
   }
   const memberProjects = [...membersByKey.values()];
-  const memberProjectRefs = [...projectRefsByKey.values()];
+  const memberProjectRefs = memberProjects.map((member) =>
+    scopeProjectRef(member.environmentId, member.id),
+  );
 
   return {
     ...representative,
@@ -69,6 +71,40 @@ export function buildFlatSidebarProjectSnapshot(
   };
 }
 
+export function getSidebarProjectRemovalRefs(input: {
+  projectGroup: SidebarProjectSnapshot;
+  members: readonly SidebarProjectGroupMember[];
+  projects: readonly Project[];
+}): ScopedProjectRef[] {
+  const selectedPhysicalProjectKeys = new Set(
+    input.members.map((member) => member.physicalProjectKey),
+  );
+  const removesWholeGroup = input.projectGroup.memberProjects.every((member) =>
+    selectedPhysicalProjectKeys.has(member.physicalProjectKey),
+  );
+  if (removesWholeGroup) {
+    return [...input.projectGroup.memberProjectRefs];
+  }
+
+  const projectByRefKey = new Map(
+    input.projects.map((project) => [
+      scopedProjectKey(scopeProjectRef(project.environmentId, project.id)),
+      project,
+    ]),
+  );
+  const selectedMemberRefKeys = new Set(
+    input.members.map((member) =>
+      scopedProjectKey(scopeProjectRef(member.environmentId, member.id)),
+    ),
+  );
+  return input.projectGroup.memberProjectRefs.filter((projectRef) => {
+    const projectRefKey = scopedProjectKey(projectRef);
+    const project = projectByRefKey.get(projectRefKey);
+    return project
+      ? selectedPhysicalProjectKeys.has(derivePhysicalProjectKey(project))
+      : selectedMemberRefKeys.has(projectRefKey);
+  });
+}
 export function buildPhysicalToLogicalProjectKeyMap(input: {
   projects: ReadonlyArray<Project>;
   settings: ProjectGroupingSettings;
