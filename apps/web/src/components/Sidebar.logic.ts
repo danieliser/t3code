@@ -490,6 +490,7 @@ export interface ThreadStatusPill {
     | "Working"
     | "Monitoring"
     | "Connecting"
+    | "Unread"
     | "Completed"
     | "Pending Approval"
     | "Awaiting Input"
@@ -509,6 +510,7 @@ const THREAD_STATUS_PRIORITY: Record<ThreadStatusPill["label"], number> = {
   Connecting: 4,
   "Plan Ready": 3,
   Monitoring: 2,
+  Unread: 1,
   Completed: 1,
 };
 
@@ -523,6 +525,7 @@ type ThreadStatusInput = Pick<
   | "backgroundLiveness"
 > & {
   lastVisitedAt?: string | undefined;
+  isExplicitlyUnread?: boolean | undefined;
 };
 
 export interface ThreadJumpHintVisibilityController {
@@ -611,6 +614,7 @@ export function useThreadJumpHintVisibility(): {
 }
 
 export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
+  if (thread.isExplicitlyUnread) return true;
   if (!thread.latestTurn?.completedAt) return false;
   const completedAt = Date.parse(thread.latestTurn.completedAt);
   if (Number.isNaN(completedAt)) return false;
@@ -966,6 +970,15 @@ export function resolveThreadStatusPill(input: {
   thread: ThreadStatusInput;
 }): ThreadStatusPill | null {
   const { thread } = input;
+
+  if (thread.isExplicitlyUnread) {
+    return {
+      label: "Unread",
+      colorClass: "text-blue-600 dark:text-blue-300/90",
+      dotClass: "bg-blue-500 dark:bg-blue-300/90",
+      pulse: false,
+    };
+  }
 
   if (thread.hasPendingApprovals) {
     return {
