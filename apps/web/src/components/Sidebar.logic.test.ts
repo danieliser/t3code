@@ -196,13 +196,16 @@ describe("deleteSelectedThreadEntries", () => {
 
 const filterableThread = {
   archivedAt: null,
+  createdAt: "2026-03-09T09:00:00.000Z",
   environmentId: localEnvironmentId,
   hasActionableProposedPlan: false,
   hasPendingApprovals: false,
   hasPendingUserInput: false,
   interactionMode: "default",
+  latestUserMessageAt: "2026-03-09T10:00:00.000Z",
   latestTurn: null,
   session: null,
+  updatedAt: "2026-03-09T10:00:00.000Z",
 } as const;
 
 describe("sidebar thread filters", () => {
@@ -254,6 +257,8 @@ describe("sidebar thread filters", () => {
           statuses: ["done"],
           environmentIds: [localEnvironmentId],
           sources: [ProviderDriverKind.make("codex")],
+          recentOnly: false,
+          attentionOnly: false,
           includeArchived: true,
         },
       }),
@@ -270,6 +275,78 @@ describe("sidebar thread filters", () => {
     ).toBe(false);
   });
 
+  it("matches the attention quick filter as unread OR needs attention", () => {
+    const filters = {
+      ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+      attentionOnly: true,
+    };
+    expect(
+      matchesSidebarThreadFilters({
+        thread: { ...filterableThread, hasPendingUserInput: true },
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters,
+      }),
+    ).toBe(true);
+    expect(
+      matchesSidebarThreadFilters({
+        thread: {
+          ...filterableThread,
+          latestTurn: makeLatestTurn(),
+        },
+        lastVisitedAt: "2026-03-09T10:04:00.000Z",
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters,
+      }),
+    ).toBe(true);
+    expect(
+      matchesSidebarThreadFilters({
+        thread: filterableThread,
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters,
+      }),
+    ).toBe(false);
+  });
+
+  it("matches recent activity within the last seven days", () => {
+    const filters = {
+      ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+      recentOnly: true,
+    };
+    const nowMs = Date.parse("2026-03-10T10:00:00.000Z");
+    expect(
+      matchesSidebarThreadFilters({
+        thread: filterableThread,
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters,
+        nowMs,
+      }),
+    ).toBe(true);
+    expect(
+      matchesSidebarThreadFilters({
+        thread: {
+          ...filterableThread,
+          latestUserMessageAt: null,
+          updatedAt: "2026-03-03T09:59:59.999Z",
+        },
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters,
+        nowMs,
+      }),
+    ).toBe(false);
+    expect(
+      matchesSidebarThreadFilters({
+        thread: {
+          ...filterableThread,
+          latestUserMessageAt: null,
+          updatedAt: "not-a-date",
+        },
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters,
+        nowMs,
+      }),
+    ).toBe(false);
+  });
+
   it("recognizes the default filter state and meaningful deviations", () => {
     expect(hasActiveSidebarThreadFilters(DEFAULT_SIDEBAR_THREAD_FILTERS)).toBe(false);
     expect(
@@ -282,6 +359,18 @@ describe("sidebar thread filters", () => {
       hasActiveSidebarThreadFilters({
         ...DEFAULT_SIDEBAR_THREAD_FILTERS,
         includeArchived: true,
+      }),
+    ).toBe(true);
+    expect(
+      hasActiveSidebarThreadFilters({
+        ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+        attentionOnly: true,
+      }),
+    ).toBe(true);
+    expect(
+      hasActiveSidebarThreadFilters({
+        ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+        recentOnly: true,
       }),
     ).toBe(true);
   });
