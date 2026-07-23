@@ -10,6 +10,12 @@ export interface DeferredStorage<TValue> {
   getItem: (name: string) => string | null | Promise<string | null>;
   setItem: (name: string, value: TValue) => void;
   removeItem: (name: string) => void;
+  cancel: () => void;
+  flush: () => void;
+}
+
+export interface DebouncedStorage<R = unknown> extends StateStorage<R> {
+  cancel: () => void;
   flush: () => void;
 }
 
@@ -66,6 +72,9 @@ export function createDeferredStorage<TValue>(
       // cancel() leaves the captured value in Pacer's lastArgs.
       debouncedSetItem.reset();
       resolvedStorage.removeItem(name);
+    },
+    cancel: () => {
+      debouncedSetItem.cancel();
     },
     flush: () => {
       debouncedSetItem.flush();
