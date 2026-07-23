@@ -265,6 +265,7 @@ import {
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
+import { useUiStateStore } from "../uiStateStore";
 import {
   appendTerminalContextsToPrompt,
   formatTerminalContextLabel,
