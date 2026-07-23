@@ -657,6 +657,32 @@ type SidebarThreadFilterInput = Pick<
 
 export const SIDEBAR_RECENT_WINDOW_DAYS = 7;
 const SIDEBAR_RECENT_WINDOW_MS = SIDEBAR_RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1_000;
+export const SIDEBAR_RECENT_FILTER_REFRESH_MS = 60_000;
+
+export function startSidebarRecentFilterClock(input: {
+  readonly enabled: boolean;
+  readonly onTick: (nowMs: number) => void;
+  readonly now?: () => number;
+}): () => void {
+  if (!input.enabled) {
+    return () => {};
+  }
+
+  const now = input.now ?? Date.now;
+  input.onTick(now());
+  const interval = globalThis.setInterval(() => {
+    input.onTick(now());
+  }, SIDEBAR_RECENT_FILTER_REFRESH_MS);
+  return () => {
+    globalThis.clearInterval(interval);
+  };
+}
+
+export function resolveSidebarThreadFilterStatuses(
+  statuses: ReadonlyArray<SidebarThreadFilterStatus>,
+): ReadonlyArray<SidebarThreadFilterStatus> {
+  return statuses.length === 0 ? SIDEBAR_THREAD_FILTER_STATUSES : statuses;
+}
 
 function latestValidTimestampMs(...timestamps: ReadonlyArray<string | null>): number | null {
   let latestTimestampMs: number | null = null;
@@ -758,11 +784,12 @@ export function matchesSidebarThreadFilters(input: {
       return false;
     }
   }
-  return filters.statuses.includes(status) || (isUnread && filters.statuses.includes("unread"));
+  const selectedStatuses = resolveSidebarThreadFilterStatuses(filters.statuses);
+  return selectedStatuses.includes(status) || (isUnread && selectedStatuses.includes("unread"));
 }
 
 export function hasNarrowingSidebarThreadFilters(filters: SidebarThreadFilters): boolean {
-  const selectedStatuses = new Set(filters.statuses);
+  const selectedStatuses = new Set(resolveSidebarThreadFilterStatuses(filters.statuses));
   const includesEveryStatus = SIDEBAR_THREAD_FILTER_STATUSES.every((status) =>
     selectedStatuses.has(status),
   );
@@ -779,6 +806,32 @@ export function hasNarrowingSidebarThreadFilters(filters: SidebarThreadFilters):
 
 export function hasActiveSidebarThreadFilters(filters: SidebarThreadFilters): boolean {
   return filters.includeArchived || hasNarrowingSidebarThreadFilters(filters);
+}
+
+export function filterSidebarThreadsForActiveRoute<T>(input: {
+  readonly threads: ReadonlyArray<T>;
+  readonly activeThreadKey: string | null;
+  readonly getThreadKey: (thread: T) => string;
+  readonly matchesFilters: (thread: T) => boolean;
+}): T[] {
+  return input.threads.filter(
+    (thread) =>
+      input.getThreadKey(thread) === input.activeThreadKey || input.matchesFilters(thread),
+  );
+}
+
+export function resolvePinnedCollapsedSidebarThread<T>(input: {
+  readonly threads: ReadonlyArray<T>;
+  readonly activeThreadKey: string | null;
+  readonly projectExpanded: boolean;
+  readonly getThreadKey: (thread: T) => string;
+}): T | null {
+  if (input.projectExpanded || input.activeThreadKey === null) {
+    return null;
+  }
+  return (
+    input.threads.find((thread) => input.getThreadKey(thread) === input.activeThreadKey) ?? null
+  );
 }
 
 export function sidebarProviderInstanceKey(
@@ -1311,9 +1364,10 @@ export function shouldShowAllSidebarThreads(input: {
   return input.flatMode || input.isThreadListExpanded;
 }
 
-export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input: {
+export function getVisibleThreadsForProject<T>(input: {
   threads: readonly T[];
-  activeThreadId: T["id"] | undefined;
+  activeThreadKey: string | null;
+  getThreadKey: (thread: T) => string;
   isThreadListExpanded: boolean;
   previewLimit: number;
 }): {
@@ -1321,7 +1375,7 @@ export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input:
   visibleThreads: T[];
   hiddenThreads: T[];
 } {
-  const { activeThreadId, isThreadListExpanded, previewLimit, threads } = input;
+  const { activeThreadKey, getThreadKey, isThreadListExpanded, previewLimit, threads } = input;
   const hasHiddenThreads = threads.length > previewLimit;
 
   if (!hasHiddenThreads || isThreadListExpanded) {
@@ -1333,7 +1387,10 @@ export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input:
   }
 
   const previewThreads = threads.slice(0, previewLimit);
-  if (!activeThreadId || previewThreads.some((thread) => thread.id === activeThreadId)) {
+  if (
+    activeThreadKey === null ||
+    previewThreads.some((thread) => getThreadKey(thread) === activeThreadKey)
+  ) {
     return {
       hasHiddenThreads: true,
       hiddenThreads: threads.slice(previewLimit),
@@ -1341,7 +1398,7 @@ export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input:
     };
   }
 
-  const activeThread = threads.find((thread) => thread.id === activeThreadId);
+  const activeThread = threads.find((thread) => getThreadKey(thread) === activeThreadKey);
   if (!activeThread) {
     return {
       hasHiddenThreads: true,
@@ -1350,12 +1407,14 @@ export function getVisibleThreadsForProject<T extends Pick<Thread, "id">>(input:
     };
   }
 
-  const visibleThreadIds = new Set([...previewThreads, activeThread].map((thread) => thread.id));
+  const visibleThreadKeys = new Set(
+    [...previewThreads, activeThread].map((thread) => getThreadKey(thread)),
+  );
 
   return {
     hasHiddenThreads: true,
-    hiddenThreads: threads.filter((thread) => !visibleThreadIds.has(thread.id)),
-    visibleThreads: threads.filter((thread) => visibleThreadIds.has(thread.id)),
+    hiddenThreads: threads.filter((thread) => !visibleThreadKeys.has(getThreadKey(thread))),
+    visibleThreads: threads.filter((thread) => visibleThreadKeys.has(getThreadKey(thread))),
   };
 }
 
