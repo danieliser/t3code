@@ -750,7 +750,7 @@ export function matchesSidebarThreadFilters(input: {
       return false;
     }
   }
-  return filters.statuses.includes(status);
+  return filters.statuses.includes(status) || (isUnread && filters.statuses.includes("unread"));
 }
 
 export function hasNarrowingSidebarThreadFilters(filters: SidebarThreadFilters): boolean {
