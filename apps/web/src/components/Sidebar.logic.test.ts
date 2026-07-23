@@ -205,6 +205,7 @@ const filterableThread = {
   archivedAt: null,
   createdAt: "2026-03-09T09:00:00.000Z",
   environmentId: localEnvironmentId,
+  projectId: ProjectId.make("project-1"),
   hasActionableProposedPlan: false,
   hasPendingApprovals: false,
   hasPendingUserInput: false,
@@ -297,10 +298,12 @@ describe("sidebar thread filters", () => {
         filters: {
           statuses: ["done"],
           environmentIds: [localEnvironmentId],
+          projectKeys: ["environment-local:project-1"],
           sources: [ProviderDriverKind.make("codex")],
           recentOnly: false,
           attentionOnly: false,
           includeArchived: true,
+          groupByProject: true,
         },
       }),
     ).toBe(true);
@@ -311,6 +314,29 @@ describe("sidebar thread filters", () => {
         filters: {
           ...DEFAULT_SIDEBAR_THREAD_FILTERS,
           sources: [ProviderDriverKind.make("codex")],
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("filters by scoped project key", () => {
+    expect(
+      matchesSidebarThreadFilters({
+        thread: filterableThread,
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters: {
+          ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+          projectKeys: ["environment-local:project-1"],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      matchesSidebarThreadFilters({
+        thread: filterableThread,
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters: {
+          ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+          projectKeys: ["environment-local:project-2"],
         },
       }),
     ).toBe(false);
@@ -637,6 +663,24 @@ describe("sidebar thread filters", () => {
         recentOnly: true,
       }),
     ).toBe(true);
+    expect(
+      hasActiveSidebarThreadFilters({
+        ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+        projectKeys: ["environment-local:project-1"],
+      }),
+    ).toBe(true);
+    expect(
+      hasNarrowingSidebarThreadFilters({
+        ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+        projectKeys: ["environment-local:project-1"],
+      }),
+    ).toBe(true);
+    expect(
+      hasActiveSidebarThreadFilters({
+        ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+        groupByProject: false,
+      }),
+    ).toBe(false);
   });
 });
 
