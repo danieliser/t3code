@@ -303,6 +303,7 @@ function SidebarThreadTooltip({
   showInstanceBadge,
   modelInstanceId,
   modelLabel,
+  status,
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
@@ -319,6 +320,11 @@ function SidebarThreadTooltip({
   showInstanceBadge: boolean;
   modelInstanceId: string;
   modelLabel: string;
+  status?: {
+    readonly label: string;
+    readonly className: string;
+    readonly icon: "working" | "done" | "woke" | null;
+  } | null;
   branchMismatch: {
     threadBranch: string;
     currentBranch: string;
@@ -336,8 +342,31 @@ function SidebarThreadTooltip({
       className="max-w-80 text-left whitespace-normal [&_[data-slot=tooltip-viewport]]:p-0"
     >
       <div className="flex min-w-0 max-w-80 flex-col gap-2 p-[var(--floating-content-inset)]">
-        <div className="min-w-0 truncate text-xs leading-tight font-medium text-foreground">
-          {thread.title}
+        <div className="flex min-w-0 items-start gap-2">
+          <div className="min-w-0 flex-1 truncate text-xs leading-none font-medium text-foreground">
+            {thread.title}
+          </div>
+          {status ? (
+            <div
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 text-xs leading-none font-medium",
+                status.className,
+              )}
+            >
+              {status.icon === "working" ? (
+                <CircleDashedIcon aria-hidden className="size-3 shrink-0" />
+              ) : status.icon === "done" ? (
+                <CircleCheckIcon aria-hidden className="size-3 shrink-0" />
+              ) : status.icon === "woke" ? (
+                <AlarmClockIcon aria-hidden className="size-3 shrink-0" />
+              ) : null}
+              {status.label}
+            </div>
+          ) : (
+            <div className="shrink-0 text-xs leading-none text-muted-foreground tabular-nums">
+              {threadTimeLabel(thread)}
+            </div>
+          )}
         </div>
         <div className="grid gap-1.5 pl-0.5 text-xs text-muted-foreground">
           {projectDisplayName ? (
@@ -1205,6 +1234,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       showInstanceBadge={showInstanceBadge}
       modelInstanceId={modelInstanceId}
       modelLabel={modelLabel}
+      status={topStatus}
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
