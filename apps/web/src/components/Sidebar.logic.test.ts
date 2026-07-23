@@ -15,6 +15,7 @@ import {
   filterSidebarProjectScopeItems,
   getSidebarRangeSelectionThreadKeys,
   getSidebarThreadIdsToPrewarm,
+  getVisibleThreadsForProject,
   resolveAdjacentThreadId,
   reduceSidebarProjectScopeMenuState,
   getFallbackThreadIdAfterDelete,
@@ -40,6 +41,7 @@ import {
   formatWorkingDurationLabel,
   shouldClearThreadSelectionOnMouseDown,
   shouldRecedeSidebarThread,
+  shouldShowAllSidebarThreads,
   sortLogicalProjectsForSidebar,
   sortSettledThreadsForSidebar,
   resolveSidebarDropTarget,
@@ -2653,6 +2655,83 @@ describe("resolveProjectStatusIndicator", () => {
         },
       ]),
     ).toMatchObject({ label: "Plan Ready", dotClass: "bg-violet-500" });
+  });
+});
+
+describe("getVisibleThreadsForProject", () => {
+  it("includes the active thread even when it falls below the folded preview", () => {
+    const threads = Array.from({ length: 8 }, (_, index) =>
+      makeThread({
+        id: ThreadId.make(`thread-${index + 1}`),
+        title: `Thread ${index + 1}`,
+      }),
+    );
+
+    const result = getVisibleThreadsForProject({
+      threads,
+      activeThreadId: ThreadId.make("thread-8"),
+      isThreadListExpanded: false,
+      previewLimit: 6,
+    });
+
+    expect(result.hasHiddenThreads).toBe(true);
+    expect(result.visibleThreads.map((thread) => thread.id)).toEqual([
+      ThreadId.make("thread-1"),
+      ThreadId.make("thread-2"),
+      ThreadId.make("thread-3"),
+      ThreadId.make("thread-4"),
+      ThreadId.make("thread-5"),
+      ThreadId.make("thread-6"),
+      ThreadId.make("thread-8"),
+    ]);
+    expect(result.hiddenThreads.map((thread) => thread.id)).toEqual([ThreadId.make("thread-7")]);
+  });
+
+  it("returns all threads when the list is expanded", () => {
+    const threads = Array.from({ length: 8 }, (_, index) =>
+      makeThread({
+        id: ThreadId.make(`thread-${index + 1}`),
+      }),
+    );
+
+    const result = getVisibleThreadsForProject({
+      threads,
+      activeThreadId: ThreadId.make("thread-8"),
+      isThreadListExpanded: true,
+      previewLimit: 6,
+    });
+
+    expect(result.hasHiddenThreads).toBe(true);
+    expect(result.visibleThreads.map((thread) => thread.id)).toEqual(
+      threads.map((thread) => thread.id),
+    );
+    expect(result.hiddenThreads).toEqual([]);
+  });
+});
+
+describe("shouldShowAllSidebarThreads", () => {
+  it("always shows the complete list in flat mode", () => {
+    expect(
+      shouldShowAllSidebarThreads({
+        flatMode: true,
+        isThreadListExpanded: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves preview folding for grouped projects", () => {
+    expect(
+      shouldShowAllSidebarThreads({
+        flatMode: false,
+        isThreadListExpanded: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldShowAllSidebarThreads({
+        flatMode: false,
+        isThreadListExpanded: true,
+      }),
+    ).toBe(true);
   });
 });
 
