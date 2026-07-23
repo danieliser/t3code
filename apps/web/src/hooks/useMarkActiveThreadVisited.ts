@@ -9,7 +9,7 @@ export function useMarkActiveThreadVisited(
   const markActiveThreadVisited = useUiStateStore((store) => store.markActiveThreadVisited);
 
   useEffect(() => {
-    if (threadKey === null || latestTurnCompletedAt === null) {
+    if (threadKey === null) {
       markActiveThreadVisited(null, null);
       return;
     }
