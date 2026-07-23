@@ -21,12 +21,16 @@ const decodeAppPackageMetadata = Schema.decodeEffect(Schema.fromJsonString(AppPa
 export class DesktopUserDataPathResolutionError extends Schema.TaggedErrorClass<DesktopUserDataPathResolutionError>()(
   "DesktopUserDataPathResolutionError",
   {
-    legacyPath: Schema.String,
+    operation: Schema.Literals(["inspect-path", "migrate-legacy-path"]),
+    path: Schema.String,
+    targetPath: Schema.optionalKey(Schema.String),
     cause: Schema.Defect(),
   },
 ) {
   override get message(): string {
-    return `Failed to inspect legacy desktop user-data path at "${this.legacyPath}".`;
+    return this.operation === "inspect-path"
+      ? `Failed to inspect desktop user-data path at "${this.path}".`
+      : `Failed to migrate legacy desktop user-data path from "${this.path}" to "${this.targetPath}".`;
   }
 }
 
@@ -48,6 +52,22 @@ const normalizeCommitHash = (value: string): Option.Option<string> => {
 export const resolveUserDataPath = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
+  const canonicalPath = environment.path.join(
+    environment.appDataDirectory,
+    environment.userDataDirName,
+  );
+  const canonicalPathExists = yield* fileSystem.exists(canonicalPath).pipe(
+    Effect.mapError(
+      (cause) =>
+        new DesktopUserDataPathResolutionError({
+          operation: "inspect-path",
+          path: canonicalPath,
+          cause,
+        }),
+    ),
+  );
+  if (canonicalPathExists) return canonicalPath;
+
   const legacyPath = environment.path.join(
     environment.appDataDirectory,
     environment.legacyUserDataDirName,
@@ -56,14 +76,26 @@ export const resolveUserDataPath = Effect.gen(function* () {
     Effect.mapError(
       (cause) =>
         new DesktopUserDataPathResolutionError({
-          legacyPath,
+          operation: "inspect-path",
+          path: legacyPath,
           cause,
         }),
     ),
   );
-  return legacyPathExists
-    ? legacyPath
-    : environment.path.join(environment.appDataDirectory, environment.userDataDirName);
+  if (!legacyPathExists) return canonicalPath;
+
+  yield* fileSystem.rename(legacyPath, canonicalPath).pipe(
+    Effect.mapError(
+      (cause) =>
+        new DesktopUserDataPathResolutionError({
+          operation: "migrate-legacy-path",
+          path: legacyPath,
+          targetPath: canonicalPath,
+          cause,
+        }),
+    ),
+  );
+  return canonicalPath;
 }).pipe(Effect.withSpan("desktop.appIdentity.resolveUserDataPath"));
 
 /** @public Service construction is part of the canonical Effect module API. */

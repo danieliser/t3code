@@ -115,7 +115,7 @@ function subscribeClientSettingsHydration(listener: () => void): () => void {
   };
 }
 
-async function hydrateClientSettings(): Promise<void> {
+export async function hydrateClientSettings(): Promise<void> {
   if (clientSettingsHydrationStatus === "ready") {
     return;
   }

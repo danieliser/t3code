@@ -13,6 +13,7 @@ import {
 } from "./lib/windowControlsOverlay";
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
+import { hydrateClientPersistence } from "./clientPersistenceBootstrap";
 
 // Electron loads the app from a file-backed shell, so hash history avoids path resolution issues.
 const history = isElectron ? createHashHistory() : createBrowserHistory();
@@ -57,10 +58,11 @@ const managedAuthShellModule =
 // rendering, so the splash holds until real UI paints instead of dropping to
 // a blank window while chunks download.
 export const startup = Promise.all([
+  hydrateClientPersistence(),
   managedAuthShellModule?.then((module) => module.default) ?? null,
   router.load(),
 ])
-  .then(([ManagedAuthShell]) => {
+  .then(([, ManagedAuthShell]) => {
     // A route chunk failure still resolves router.load(): the error is parked in
     // the lazy component and surfaces through the route error boundary. Skip the
     // paint when a reload is on its way, and only re-arm the guard after a boot
