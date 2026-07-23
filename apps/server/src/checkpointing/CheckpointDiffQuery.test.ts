@@ -382,6 +382,7 @@ describe("CheckpointDiffQuery.layer", () => {
             getUserInputActivity: () => Effect.die("unused"),
             getCommandReadModel: () => Effect.die("unused"),
             searchThreads: () => Effect.die("unused"),
+            getThreadActivitiesPage: () => Effect.die("unused"),
             getSnapshot: () => Effect.die("unused"),
             getShellSnapshot: () => Effect.die("unused"),
             getArchivedShellSnapshot: () => Effect.die("unused"),
