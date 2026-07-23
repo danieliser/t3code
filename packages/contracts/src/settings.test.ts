@@ -6,6 +6,7 @@ import {
   ClientSettingsSchema,
   ClientSettingsPatch,
   ClaudeSettings,
+  DEFAULT_SIDEBAR_THREAD_FILTERS,
   DEFAULT_SERVER_SETTINGS,
   resolveProviderInstanceEnabled,
   ServerSettings,
@@ -368,6 +369,54 @@ describe("ServerSettings thread settlement", () => {
   it.each([-1, 0, 91])("rejects an auto-settle threshold outside 1..90: %s", (value) => {
     expect(() => decodeServerSettings({ sidebarAutoSettleAfterDays: value })).toThrow();
     expect(() => decodeServerSettingsPatch({ sidebarAutoSettleAfterDays: value })).toThrow();
+  });
+});
+
+describe("ClientSettings sidebar thread filters", () => {
+  it("defaults to showing every active thread", () => {
+    expect(decodeClientSettings({}).sidebarThreadFilters).toEqual(DEFAULT_SIDEBAR_THREAD_FILTERS);
+    expect(DEFAULT_SIDEBAR_THREAD_FILTERS).toEqual({
+      statuses: ["needs_attention", "unread", "working", "done"],
+      environmentIds: [],
+      sources: [],
+      includeArchived: false,
+    });
+  });
+
+  it("hydrates missing nested fields and accepts a complete filter patch", () => {
+    expect(
+      decodeClientSettings({ sidebarThreadFilters: { includeArchived: true } })
+        .sidebarThreadFilters,
+    ).toEqual({
+      ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+      includeArchived: true,
+    });
+
+    expect(
+      decodeClientSettingsPatch({
+        sidebarThreadFilters: {
+          statuses: ["unread"],
+          environmentIds: ["environment-local"],
+          sources: ["codex"],
+          includeArchived: true,
+        },
+      }).sidebarThreadFilters,
+    ).toEqual({
+      statuses: ["unread"],
+      environmentIds: ["environment-local"],
+      sources: ["codex"],
+      includeArchived: true,
+    });
+  });
+
+  it("rejects unknown status values", () => {
+    expect(() =>
+      decodeClientSettingsPatch({
+        sidebarThreadFilters: {
+          statuses: ["paused"],
+        },
+      }),
+    ).toThrow();
   });
 });
 

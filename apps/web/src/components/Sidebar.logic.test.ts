@@ -9,6 +9,7 @@ import {
   buildBulkTitleRegenerationContextMenuItem,
   buildBulkUnpinContextMenuItem,
   buildMultiSelectThreadContextMenuItems,
+  classifySidebarThreadFilterStatus,
   createThreadJumpHintVisibilityController,
   deleteSelectedThreadEntries,
   filterSidebarProjectScopeItems,
@@ -18,9 +19,11 @@ import {
   getFallbackThreadIdAfterDelete,
   getProjectSortTimestamp,
   hasUnseenCompletion,
+  hasActiveSidebarThreadFilters,
   isContextMenuPointerDown,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
+  matchesSidebarThreadFilters,
   orderItemsByPreferredIds,
   resolveProjectStatusIndicator,
   resolveThreadRowClassName,
@@ -54,10 +57,11 @@ import {
   EnvironmentId,
   OrchestrationLatestTurn,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
-
+import { DEFAULT_SIDEBAR_THREAD_FILTERS } from "@t3tools/contracts/settings";
 import {
   DEFAULT_INTERACTION_MODE,
   DEFAULT_RUNTIME_MODE,
@@ -187,6 +191,99 @@ describe("deleteSelectedThreadEntries", () => {
       deletedThreadKeys: new Set(["one", "three"]),
       firstFailure: null,
     });
+  });
+});
+
+const filterableThread = {
+  archivedAt: null,
+  environmentId: localEnvironmentId,
+  hasActionableProposedPlan: false,
+  hasPendingApprovals: false,
+  hasPendingUserInput: false,
+  interactionMode: "default",
+  latestTurn: null,
+  session: null,
+} as const;
+
+describe("sidebar thread filters", () => {
+  it("classifies attention, working, unread, and done as exclusive statuses", () => {
+    expect(
+      classifySidebarThreadFilterStatus({ ...filterableThread, hasPendingApprovals: true }),
+    ).toBe("needs_attention");
+    expect(
+      classifySidebarThreadFilterStatus({
+        ...filterableThread,
+        session: {
+          threadId: ThreadId.make("thread-1"),
+          status: "running",
+          providerName: "Codex",
+          runtimeMode: "full-access",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: "2026-03-09T10:00:00.000Z",
+        },
+      }),
+    ).toBe("working");
+    expect(
+      classifySidebarThreadFilterStatus({
+        ...filterableThread,
+        latestTurn: makeLatestTurn(),
+        lastVisitedAt: "2026-03-09T10:04:00.000Z",
+      }),
+    ).toBe("unread");
+    expect(classifySidebarThreadFilterStatus(filterableThread)).toBe("done");
+  });
+
+  it("matches status, environment, source, and archived controls", () => {
+    const archivedThread = {
+      ...filterableThread,
+      archivedAt: "2026-03-09T11:00:00.000Z",
+    };
+    expect(
+      matchesSidebarThreadFilters({
+        thread: archivedThread,
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters: DEFAULT_SIDEBAR_THREAD_FILTERS,
+      }),
+    ).toBe(false);
+    expect(
+      matchesSidebarThreadFilters({
+        thread: archivedThread,
+        providerDriverKind: ProviderDriverKind.make("codex"),
+        filters: {
+          statuses: ["done"],
+          environmentIds: [localEnvironmentId],
+          sources: [ProviderDriverKind.make("codex")],
+          includeArchived: true,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      matchesSidebarThreadFilters({
+        thread: filterableThread,
+        providerDriverKind: ProviderDriverKind.make("claudeAgent"),
+        filters: {
+          ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+          sources: [ProviderDriverKind.make("codex")],
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it("recognizes the default filter state and meaningful deviations", () => {
+    expect(hasActiveSidebarThreadFilters(DEFAULT_SIDEBAR_THREAD_FILTERS)).toBe(false);
+    expect(
+      hasActiveSidebarThreadFilters({
+        ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+        statuses: ["needs_attention", "unread", "working"],
+      }),
+    ).toBe(true);
+    expect(
+      hasActiveSidebarThreadFilters({
+        ...DEFAULT_SIDEBAR_THREAD_FILTERS,
+        includeArchived: true,
+      }),
+    ).toBe(true);
   });
 });
 
