@@ -1956,9 +1956,21 @@ describe("resolveThreadStatusPill", () => {
           ...baseThread,
           hasPendingApprovals: true,
           hasPendingUserInput: true,
+          isExplicitlyUnread: true,
         },
       }),
     ).toMatchObject({ label: "Pending Approval", pulse: false });
+  });
+
+  it("shows active work before an explicit unread marker", () => {
+    expect(
+      resolveThreadStatusPill({
+        thread: {
+          ...baseThread,
+          isExplicitlyUnread: true,
+        },
+      }),
+    ).toMatchObject({ label: "Working", pulse: true });
   });
 
   it("shows awaiting input when plan mode is blocked on user answers", () => {

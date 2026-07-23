@@ -187,6 +187,7 @@ function RootRouteView() {
           <ConfirmDialogHost />
           <SlowRpcRequestToastCoordinator />
           <HostedStaticEnvironmentBootstrap />
+          <CompletedThreadUnreadTracker />
           {primaryEnvironmentAuthenticated ? (
             <EventRouter skipInitialBootstrapNavigation={returningFromWelcomeRef.current} />
           ) : null}
@@ -305,6 +306,11 @@ function HostedStaticEnvironmentBootstrap() {
     setActiveEnvironmentId(firstSavedEnvironment.environmentId);
   }, [activeEnvironmentId, environments]);
 
+  return null;
+}
+
+function CompletedThreadUnreadTracker() {
+  useMarkFirstSeenCompletedThreadsUnread();
   return null;
 }
 
@@ -427,8 +433,6 @@ function EventRouter({
 }: {
   readonly skipInitialBootstrapNavigation: boolean;
 }) {
-  useMarkFirstSeenCompletedThreadsUnread();
-
   const navigate = useNavigate();
   const pathname = useLocation({ select: (loc) => loc.pathname });
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);

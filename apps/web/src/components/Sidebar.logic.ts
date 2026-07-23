@@ -971,15 +971,6 @@ export function resolveThreadStatusPill(input: {
 }): ThreadStatusPill | null {
   const { thread } = input;
 
-  if (thread.isExplicitlyUnread) {
-    return {
-      label: "Unread",
-      colorClass: "text-blue-600 dark:text-blue-300/90",
-      dotClass: "bg-blue-500 dark:bg-blue-300/90",
-      pulse: false,
-    };
-  }
-
   if (thread.hasPendingApprovals) {
     return {
       label: "Pending Approval",
@@ -1050,6 +1041,15 @@ export function resolveThreadStatusPill(input: {
       label: "Monitoring",
       colorClass: "text-sky-600 dark:text-sky-300/80",
       dotClass: "bg-sky-500 dark:bg-sky-300/80",
+      pulse: false,
+    };
+  }
+
+  if (thread.isExplicitlyUnread) {
+    return {
+      label: "Unread",
+      colorClass: "text-blue-600 dark:text-blue-300/90",
+      dotClass: "bg-blue-500 dark:bg-blue-300/90",
       pulse: false,
     };
   }
