@@ -231,6 +231,7 @@ describe("desktop client persistence races", () => {
       },
       sidebarThreadSortOrder: "created_at",
       sidebarThreadFilters: {
+        ...DEFAULT_CLIENT_SETTINGS.sidebarThreadFilters,
         groupByProject: true,
         statuses: ["unread"],
       },
@@ -253,6 +254,7 @@ describe("desktop client persistence races", () => {
         },
         sidebarThreadSortOrder: "created_at",
         sidebarThreadFilters: {
+          ...DEFAULT_CLIENT_SETTINGS.sidebarThreadFilters,
           groupByProject: true,
           statuses: ["unread"],
         },
@@ -284,6 +286,7 @@ describe("desktop client persistence races", () => {
       expect.objectContaining({
         sidebarProjectSortOrder: "manual",
         sidebarThreadFilters: {
+          ...DEFAULT_CLIENT_SETTINGS.sidebarThreadFilters,
           groupByProject: true,
           statuses: ["unread"],
         },
