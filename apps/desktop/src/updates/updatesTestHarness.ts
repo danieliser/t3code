@@ -11,6 +11,7 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
 import * as DesktopState from "../app/DesktopState.ts";
+import * as DesktopWindow from "../window/DesktopWindow.ts";
 import * as DesktopUpdates from "./DesktopUpdates.ts";
 
 /** Shared DesktopUpdates test harness: a fully stubbed updater layer whose
@@ -31,6 +32,7 @@ export interface UpdatesHarnessOptions {
   readonly quitAndInstall?: Effect.Effect<void, ElectronUpdater.ElectronUpdaterQuitAndInstallError>;
   readonly stopBackend?: Effect.Effect<void>;
   readonly startBackend?: Effect.Effect<void>;
+  readonly installEvents?: string[];
   readonly env?: Record<string, string | undefined>;
 }
 
@@ -91,6 +93,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
       Effect.sync(() => {
         quitAndInstallCount += 1;
         installSteps.push("quitAndInstall");
+        options.installEvents?.push("quit-and-install");
       }).pipe(Effect.andThen(options.quitAndInstall ?? Effect.void)),
     on: (eventName, listener) =>
       Effect.acquireRelease(
@@ -122,13 +125,36 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
     syncAllAppearance: () => Effect.void,
   } satisfies ElectronWindow.ElectronWindow["Service"]);
 
+  const desktopWindowLayer = Layer.succeed(DesktopWindow.DesktopWindow, {
+    createMain: Effect.die("unexpected createMain"),
+    ensureMain: Effect.die("unexpected ensureMain"),
+    revealOrCreateMain: Effect.die("unexpected revealOrCreateMain"),
+    activate: Effect.void,
+    createMainIfBackendReady: Effect.void,
+    showConnectingSplash: Effect.void,
+    handleBackendReady: () => Effect.void,
+    handleBackendNotReady: Effect.void,
+    flushMainWindowBounds: Effect.sync(() => {
+      options.installEvents?.push("flush-bounds");
+    }),
+    flushRendererState: Effect.sync(() => {
+      options.installEvents?.push("flush-renderer");
+    }),
+    dispatchMenuAction: () => Effect.void,
+    zoomMain: () => Effect.void,
+    syncAppearance: Effect.void,
+  } satisfies DesktopWindow.DesktopWindow["Service"]);
+
   const stubBackendInstance: DesktopBackendPool.DesktopBackendInstance = {
     id: DesktopBackendPool.PRIMARY_INSTANCE_ID,
     label: Effect.succeed("Windows"),
     start: Effect.sync(() => {
       installSteps.push("startBackend");
     }).pipe(Effect.andThen(options.startBackend ?? Effect.void)),
-    stop: () => options.stopBackend ?? Effect.void,
+    stop: () =>
+      Effect.sync(() => {
+        options.installEvents?.push("stop-backend");
+      }).pipe(Effect.andThen(options.stopBackend ?? Effect.void)),
     currentConfig: Effect.succeed(Option.none()),
     snapshot: Effect.succeed({
       desiredRunning: false,
@@ -204,6 +230,7 @@ export function makeHarness(options: UpdatesHarnessOptions = {}) {
   const layer = DesktopUpdates.layer.pipe(
     Layer.provideMerge(updaterLayer),
     Layer.provideMerge(windowLayer),
+    Layer.provideMerge(desktopWindowLayer),
     Layer.provideMerge(backendLayer),
     Layer.provideMerge(DesktopState.layer),
     Layer.provideMerge(settingsLayer),

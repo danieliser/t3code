@@ -559,6 +559,30 @@ describe("DesktopUpdates", () => {
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
   });
 
+  it.effect("flushes renderer persistence before installing an update", () => {
+    const installEvents: string[] = [];
+    const harness = makeHarness({ installEvents });
+
+    return Effect.scoped(
+      Effect.gen(function* () {
+        const updates = yield* DesktopUpdates.DesktopUpdates;
+        yield* updates.configure;
+        harness.emit("update-downloaded", { version: "1.2.4" });
+        yield* flushCallbacks;
+
+        const result = yield* updates.install;
+        assert.isTrue(result.accepted);
+        assert.isFalse(result.completed);
+        assert.deepEqual(installEvents, [
+          "flush-renderer",
+          "flush-bounds",
+          "stop-backend",
+          "quit-and-install",
+        ]);
+      }),
+    ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));
+  });
+
   it.effect("keeps windows and restarts backends when quitAndInstall fails", () => {
     const harness = makeHarness({
       quitAndInstall: Effect.fail(

@@ -31,6 +31,7 @@ import * as ElectronUpdater from "../electron/ElectronUpdater.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as IpcChannels from "../ipc/channels.ts";
 import * as DesktopAppSettings from "../settings/DesktopAppSettings.ts";
+import * as DesktopWindow from "../window/DesktopWindow.ts";
 import { normalizeDesktopUpdateReleaseNotes } from "./releaseNotes.ts";
 import { resolveDefaultDesktopUpdateChannel } from "./updateChannels.ts";
 import {
@@ -278,6 +279,7 @@ export const make = Effect.gen(function* () {
   const desktopState = yield* DesktopState.DesktopState;
   const electronUpdater = yield* ElectronUpdater.ElectronUpdater;
   const electronWindow = yield* ElectronWindow.ElectronWindow;
+  const desktopWindow = yield* DesktopWindow.DesktopWindow;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
@@ -583,6 +585,10 @@ export const make = Effect.gen(function* () {
           return { accepted: false, completed: false, failed: false };
         }
 
+        // Persist renderer-owned state and the main-window bounds before the
+        // updater starts shutting down backends or handing off to Electron.
+        yield* desktopWindow.flushRendererState;
+        yield* desktopWindow.flushMainWindowBounds;
         yield* Ref.set(desktopState.quitting, true);
 
         return yield* Effect.gen(function* () {
