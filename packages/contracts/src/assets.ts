@@ -1,6 +1,6 @@
 import * as Schema from "effect/Schema";
 
-import { NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { EventId, NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
@@ -22,6 +22,10 @@ export const AssetResource = Schema.Union([
   Schema.TaggedStruct("media-file", {
     threadId: ThreadId,
     path: TrimmedNonEmptyString.check(Schema.isMaxLength(ASSET_PATH_MAX_LENGTH)),
+  }),
+  Schema.TaggedStruct("generated-image", {
+    threadId: ThreadId,
+    activityId: EventId,
   }),
   Schema.TaggedStruct("attachment", {
     attachmentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
@@ -230,6 +234,29 @@ export class AssetAttachmentNotFoundError extends Schema.TaggedErrorClass<AssetA
   }
 }
 
+export class AssetGeneratedImageNotFoundError extends Schema.TaggedErrorClass<AssetGeneratedImageNotFoundError>()(
+  "AssetGeneratedImageNotFoundError",
+  {
+    resource: AssetResource,
+  },
+) {
+  override get message(): string {
+    return "Generated image was not found.";
+  }
+}
+
+export class AssetGeneratedImageInspectionError extends Schema.TaggedErrorClass<AssetGeneratedImageInspectionError>()(
+  "AssetGeneratedImageInspectionError",
+  {
+    resource: AssetResource,
+    cause: Schema.Defect(),
+  },
+) {
+  override get message(): string {
+    return "Failed to inspect the generated image.";
+  }
+}
+
 export class AssetProjectFaviconResolutionError extends Schema.TaggedErrorClass<AssetProjectFaviconResolutionError>()(
   "AssetProjectFaviconResolutionError",
   {
@@ -287,6 +314,8 @@ export const AssetAccessError = Schema.Union([
   AssetWorkspaceAssetNotFoundError,
   AssetWorkspaceResolutionError,
   AssetAttachmentNotFoundError,
+  AssetGeneratedImageNotFoundError,
+  AssetGeneratedImageInspectionError,
   AssetProjectFaviconResolutionError,
   AssetProjectFaviconInspectionError,
   AssetProjectFaviconNotFoundError,

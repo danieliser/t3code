@@ -5,10 +5,11 @@
  * surface descriptors and the active surface, while each feature continues to
  * own its durable resource state. Browser surfaces point at preview tab ids,
  * terminal surfaces point at terminal session ids, file surfaces point at
- * workspace paths, and diff/files remain singleton surfaces.
+ * workspace paths, generated-image surfaces point at provider activities, and
+ * diff/files remain singleton surfaces.
  */
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { ChatFileAttachment, ScopedThreadRef } from "@t3tools/contracts";
+import type { ChatFileAttachment, EventId, ScopedThreadRef } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -22,6 +23,7 @@ const RIGHT_PANEL_KINDS = [
   "terminal",
   "pull-request",
   "agents",
+  "generated-image",
 ] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
@@ -66,13 +68,20 @@ export type RightPanelSurface =
       repository: string;
       number: number;
     }
-  | { id: "agents"; kind: "agents" };
+  | { id: "agents"; kind: "agents" }
+  | {
+      id: `generated-image:${string}`;
+      kind: "generated-image";
+      activityId: EventId;
+      name: string;
+    };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 // v9 removed the "plan" surface kind (plans render inline in the transcript).
 // v10 keys pull-request surfaces by reference instead of a singleton tab.
 // v11 stops persisting the pull-request list's shared panel, so a restart opens the page fresh.
-const RIGHT_PANEL_STORAGE_VERSION = 11;
+// v12 adds generated-image surfaces.
+const RIGHT_PANEL_STORAGE_VERSION = 12;
 
 /**
  * The pull-request list's shared panel (see PULL_REQUESTS_PANEL_ID in the route) is session
@@ -102,7 +111,7 @@ interface RightPanelStoreState {
   ) => boolean;
   open: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "generated-image">,
   ) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
@@ -111,6 +120,7 @@ interface RightPanelStoreState {
     ref: ScopedThreadRef,
     target: { environmentId?: string; projectId: string; repository: string; number: number },
   ) => void;
+  openGeneratedImage: (ref: ScopedThreadRef, activityId: EventId, name: string) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
@@ -132,7 +142,7 @@ interface RightPanelStoreState {
   toggleVisibility: (ref: ScopedThreadRef) => void;
   toggle: (
     ref: ScopedThreadRef,
-    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request">,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "pull-request" | "generated-image">,
   ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
@@ -144,7 +154,10 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "pull-request">,
+  kind: Exclude<
+    RightPanelKind,
+    "file" | "preview" | "terminal" | "pull-request" | "generated-image"
+  >,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -180,6 +193,13 @@ const attachmentSurface = (attachment: ChatFileAttachment): RightPanelSurface =>
   revealLine: null,
   revealRequestId: 0,
   attachment,
+});
+
+const generatedImageSurface = (activityId: EventId, name: string): RightPanelSurface => ({
+  id: `generated-image:${activityId}`,
+  kind: "generated-image",
+  activityId,
+  name,
 });
 
 const terminalSurface = (terminalId: string): RightPanelSurface => ({
@@ -330,6 +350,17 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                           ...(typeof environmentId === "string" ? { environmentId } : {}),
                         }),
                       ];
+                    }
+                    if (surface.kind === "generated-image") {
+                      if (
+                        typeof surface.activityId !== "string" ||
+                        surface.id !== `generated-image:${surface.activityId}` ||
+                        typeof surface.name !== "string" ||
+                        surface.name.trim().length === 0
+                      ) {
+                        return [];
+                      }
+                      return [surface];
                     }
                     if (surface.kind !== "terminal") return [surface];
                     if (
@@ -485,6 +516,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               attachmentSurface(attachment),
             );
           }),
+        ),
+      openGeneratedImage: (ref, activityId, name) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, generatedImageSurface(activityId, name)),
+          ),
         ),
       openTerminal: (ref, terminalId) =>
         set((state) =>

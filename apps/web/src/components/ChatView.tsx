@@ -195,6 +195,8 @@ import {
   deriveAgentPanelModel,
   foldSubagentActivities,
 } from "@t3tools/client-runtime/state/subagentRuntime";
+import { GeneratedImagePanel } from "./chat/GeneratedImagePanel";
+import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
@@ -7829,6 +7831,14 @@ export default function ChatView(props: ChatViewProps) {
         model={agentPanelModel}
         environmentId={activeThreadRef?.environmentId ?? null}
         threadId={activeThreadRef?.threadId ?? null}
+      />
+    ) : renderedRightPanelSurface?.kind === "generated-image" && activeThreadRef ? (
+      <GeneratedImagePanel
+        key={renderedRightPanelSurface.id}
+        environmentId={activeThreadRef.environmentId}
+        threadRef={activeThreadRef}
+        activityId={renderedRightPanelSurface.activityId}
+        name={renderedRightPanelSurface.name}
       />
     ) : (renderedRightPanelSurface?.kind === "files" ||
         renderedRightPanelSurface?.kind === "file") &&

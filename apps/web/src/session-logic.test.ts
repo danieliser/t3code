@@ -450,6 +450,54 @@ describe("workEntryIndicatesToolNeutralStatus", () => {
 });
 
 describe("deriveWorkLogEntries", () => {
+  it("exposes completed image generation metadata without leaking its saved path", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        id: "generated-image",
+        kind: "tool.completed",
+        summary: "Image view",
+        payload: {
+          itemType: "image_view",
+          data: {
+            item: {
+              type: "imageGeneration",
+              status: "completed",
+              savedPath: "/provider/session/images/generated.png",
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(entry?.generatedImage).toEqual({
+      activityId: "generated-image",
+      name: "generated.png",
+    });
+    expect(JSON.stringify(entry)).not.toContain("/provider/session");
+  });
+
+  it("does not expose incomplete image generation metadata", () => {
+    const [entry] = deriveWorkLogEntries([
+      makeActivity({
+        id: "generated-image",
+        kind: "tool.updated",
+        summary: "Image view",
+        payload: {
+          itemType: "image_view",
+          data: {
+            item: {
+              type: "imageGeneration",
+              status: "inProgress",
+              savedPath: "/provider/session/images/generated.png",
+            },
+          },
+        },
+      }),
+    ]);
+
+    expect(entry?.generatedImage).toBeUndefined();
+  });
+
   it("keeps the latest task progress without emitting plan-update log entries", () => {
     const activities = [
       makeActivity({ id: "before", kind: "tool.completed", summary: "Read files", sequence: 0 }),

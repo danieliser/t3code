@@ -91,6 +91,7 @@ import {
   EyeIcon,
   GlobeIcon,
   HammerIcon,
+  ImageIcon,
   MessageCircleIcon,
   Minimize2Icon,
   MousePointerClickIcon,
@@ -171,6 +172,7 @@ import { cn } from "~/lib/utils";
 import { useUiStateStore } from "~/uiStateStore";
 import { type TimestampFormat } from "@t3tools/contracts/settings";
 import { formatChatTimestampTooltip, formatDayAwareTimestamp } from "../../timestampFormat";
+import { useRightPanelStore } from "~/rightPanelStore";
 import {
   buildInlineTerminalContextText,
   formatInlineTerminalContextLabel,
@@ -3150,6 +3152,31 @@ const AgentSpawnCtaRow = memo(function AgentSpawnCtaRow(props: { workEntry: Time
   );
 });
 
+const GeneratedImageWorkEntryLink = memo(function GeneratedImageWorkEntryLink({
+  threadRef,
+  image,
+}: {
+  threadRef: ScopedThreadRef;
+  image: NonNullable<TimelineWorkEntry["generatedImage"]>;
+}) {
+  return (
+    <button
+      type="button"
+      className="mt-1 ms-7 flex max-w-[calc(100%-1.75rem)] items-center gap-1.5 text-left text-xs text-info-foreground underline-offset-2 hover:underline"
+      aria-label={`Open generated image ${image.name}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        useRightPanelStore.getState().openGeneratedImage(threadRef, image.activityId, image.name);
+      }}
+      onKeyDown={stopRowToggle}
+      onPointerDown={stopRowToggle}
+    >
+      <ImageIcon className="size-3.5 shrink-0" aria-hidden />
+      <span className="truncate">{image.name}</span>
+    </button>
+  );
+});
+
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;
   workspaceRoot: string | undefined;
@@ -3363,6 +3390,9 @@ const PlainWorkEntryRow = memo(function PlainWorkEntryRow(props: {
         >
           <pre className={toolCallExpandedBodyClassName}>{expandedBody}</pre>
         </div>
+      ) : null}
+      {workEntry.generatedImage && threadRef ? (
+        <GeneratedImageWorkEntryLink threadRef={threadRef} image={workEntry.generatedImage} />
       ) : null}
     </div>
   );

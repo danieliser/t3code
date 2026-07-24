@@ -15,6 +15,7 @@ import {
   Files,
   GitPullRequest,
   Globe2,
+  ImageIcon,
   Plus,
   TerminalSquare,
   Volume2,
@@ -595,6 +596,8 @@ function surfaceTitle(
       return surface.relativePath.slice(
         Math.max(surface.relativePath.lastIndexOf("/"), surface.relativePath.lastIndexOf("\\")) + 1,
       );
+    case "generated-image":
+      return surface.name;
     case "terminal":
       return (
         terminalLabelsById.get(surface.activeTerminalId) ??
@@ -673,6 +676,8 @@ function SurfaceIcon({
           className="size-3"
         />
       );
+    case "generated-image":
+      return <ImageIcon className="size-3.5 shrink-0" />;
     case "terminal":
       return <TerminalSquare className="size-3 shrink-0" />;
     case "pull-request":

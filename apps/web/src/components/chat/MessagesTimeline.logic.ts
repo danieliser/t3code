@@ -629,6 +629,10 @@ function deriveTurnFolds(input: {
       if (!isCompaction && index > terminalEntryIndex && !isSingleTrailingActivity) {
         continue;
       }
+      const isGeneratedImage = entry.kind === "work" && entry.entry.generatedImage !== undefined;
+      if (isGeneratedImage) {
+        continue;
+      }
       // Agent-spawn CTA rows never fold: workflows outlive their launching
       // turn (dynamic spawns, background execution), and folding the CTA
       // when the turn settles makes a still-running fleet invisible.
@@ -1015,7 +1019,11 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
-      if (timelineEntry.entry.agentSpawn !== undefined || timelineEntry.entry.tone === "error") {
+      if (
+        timelineEntry.entry.agentSpawn !== undefined ||
+        timelineEntry.entry.generatedImage !== undefined ||
+        timelineEntry.entry.tone === "error"
+      ) {
         nextRows.push({
           kind: "work",
           id: timelineEntry.id,
@@ -1036,6 +1044,7 @@ export function deriveMessagesTimelineRows(input: {
           nextEntry.entry.sourceActivityKind === "context-compaction" ||
           nextEntry.entry.tone === "error" ||
           activeWorkEntryIds.has(nextEntry.id) ||
+          nextEntry.entry.generatedImage !== undefined ||
           collapsedEntryIds.has(nextEntry.id) ||
           foldsByAnchorEntryId.has(nextEntry.id)
         ) {
