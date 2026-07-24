@@ -83,7 +83,7 @@ import {
   useState,
 } from "react";
 import { flushSync } from "react-dom";
-import { useLocation, useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
@@ -252,7 +252,12 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
-import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
+import {
+  buildDraftThreadRouteParams,
+  buildThreadRouteParams,
+  resolveThreadRouteTarget,
+  shouldKeepActiveThreadVisitOnUnmount,
+} from "../threadRoutes";
 import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
@@ -1389,6 +1394,7 @@ export default function ChatView(props: ChatViewProps) {
     [environmentId, threadId],
   );
   const routeThreadKey = useMemo(() => scopedThreadKey(routeThreadRef), [routeThreadRef]);
+  const router = useRouter();
   const updateProjectScriptSettings = useAtomCommand(serverEnvironment.updateSettings, {
     reportFailure: false,
   });
@@ -1470,6 +1476,26 @@ export default function ChatView(props: ChatViewProps) {
   useMarkActiveThreadVisited(
     routeThreadKey,
     activeServerThread?.latestTurn?.completedAt ?? null,
+  );
+  useEffect(
+    () => () => {
+      const currentRouteParams =
+        router.state.matches[router.state.matches.length - 1]?.params ?? {};
+      const currentRouteTarget = resolveThreadRouteTarget(currentRouteParams);
+      if (
+        shouldKeepActiveThreadVisitOnUnmount({
+          currentRouteTarget,
+          routeThreadKey,
+          draftId,
+        })
+      ) {
+        return;
+      }
+      if (useUiStateStore.getState().activeThreadVisit?.threadId === routeThreadKey) {
+        useUiStateStore.getState().markActiveThreadVisited(null, null);
+      }
+    },
+    [draftId, routeThreadKey, router],
   );
   const loadEarlierTurns = useMemo(() => {
     if (routeKind !== "server" || !threadHasOlderTurns(routeThreadState)) {

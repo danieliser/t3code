@@ -14,10 +14,5 @@ export function useMarkActiveThreadVisited(
       return;
     }
     markActiveThreadVisited(threadKey, latestTurnCompletedAt);
-    return () => {
-      if (useUiStateStore.getState().activeThreadVisit?.threadId === threadKey) {
-        markActiveThreadVisited(null, null);
-      }
-    };
   }, [latestTurnCompletedAt, markActiveThreadVisited, threadKey]);
 }
