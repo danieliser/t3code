@@ -157,6 +157,45 @@ function reconcilePersistedRecord<T>(
   return reconciled;
 }
 
+function reconcileNestedPersistedRecord<T>(
+  persisted: Readonly<Record<string, Readonly<Record<string, T>>>>,
+  current: Readonly<Record<string, Readonly<Record<string, T>>>>,
+  baseline: Readonly<Record<string, Readonly<Record<string, T>>>>,
+): Record<string, Record<string, T>> {
+  const reconciled: Record<string, Record<string, T>> = {};
+  const keys = new Set([
+    ...Object.keys(persisted),
+    ...Object.keys(current),
+    ...Object.keys(baseline),
+  ]);
+  for (const key of keys) {
+    const currentHasKey = Object.hasOwn(current, key);
+    const baselineHasKey = Object.hasOwn(baseline, key);
+    if (currentHasKey !== baselineHasKey) {
+      if (currentHasKey) {
+        reconciled[key] = { ...(current[key] as Readonly<Record<string, T>>) };
+      }
+      continue;
+    }
+    if (!currentHasKey) {
+      if (Object.hasOwn(persisted, key)) {
+        reconciled[key] = { ...(persisted[key] as Readonly<Record<string, T>>) };
+      }
+      continue;
+    }
+
+    const reconciledNested = reconcilePersistedRecord(
+      persisted[key] ?? {},
+      current[key] as Readonly<Record<string, T>>,
+      baseline[key] as Readonly<Record<string, T>>,
+    );
+    if (Object.keys(reconciledNested).length > 0) {
+      reconciled[key] = reconciledNested;
+    }
+  }
+  return reconciled;
+}
+
 function reconcileHydratedUiState(
   persisted: UiState,
   current: UiState,
@@ -181,7 +220,7 @@ function reconcileHydratedUiState(
       current.threadExplicitlyUnreadById,
       baseline.threadExplicitlyUnreadById,
     ),
-    threadChangedFilesExpandedById: reconcilePersistedRecord(
+    threadChangedFilesExpandedById: reconcileNestedPersistedRecord(
       persisted.threadChangedFilesExpandedById,
       current.threadChangedFilesExpandedById,
       baseline.threadChangedFilesExpandedById,
@@ -347,7 +386,12 @@ function readLegacyPersistedState(): { readonly raw: string; readonly state: UiS
     return null;
   }
   for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
-    const raw = window.localStorage.getItem(legacyKey);
+    let raw: string | null;
+    try {
+      raw = window.localStorage.getItem(legacyKey);
+    } catch {
+      return null;
+    }
     if (!raw) {
       continue;
     }
@@ -364,7 +408,12 @@ function readPersistedState(): UiState {
     return initialState;
   }
 
-  const raw = uiStateStorage.storage.getItem(PERSISTED_STATE_KEY);
+  let raw: string | null | Promise<string | null>;
+  try {
+    raw = uiStateStorage.storage.getItem(PERSISTED_STATE_KEY);
+  } catch {
+    return initialState;
+  }
   if (typeof raw === "string") {
     return parsePersistedStateJson(raw) ?? initialState;
   }
@@ -426,7 +475,11 @@ function cleanUpLegacyPersistedStateKeys(): void {
   }
   legacyKeysCleanedUp = true;
   for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
-    window.localStorage.removeItem(legacyKey);
+    try {
+      window.localStorage.removeItem(legacyKey);
+    } catch {
+      return;
+    }
   }
 }
 
@@ -446,6 +499,13 @@ const debouncedPersistState = new Debouncer(persistState, { wait: 500 });
 
 export async function flushUiStatePersistence(): Promise<void> {
   debouncedPersistState.cancel();
+  if (
+    !uiStatePersistenceHydrated &&
+    !uiStateDocumentInvalid &&
+    uiStateStorage.requiresExplicitHydration
+  ) {
+    await hydrateUiStateStore();
+  }
   if (!uiStatePersistenceHydrated || !uiStateStorage.writesEnabled()) {
     return;
   }
@@ -854,12 +914,11 @@ export function continueUiStatePersistenceHydrationInBackground(): void {
   if (
     uiStatePersistenceHydrated ||
     uiStateDocumentInvalid ||
-    !uiStateStorage.requiresExplicitHydration
+    !uiStateStorage.requiresExplicitHydration ||
+    uiStateHydrationPromise !== null
   ) {
     return;
   }
-  uiStateHydrationGeneration += 1;
-  uiStateHydrationPromise = null;
   void hydrateUiStateStore();
 }
 
@@ -930,6 +989,7 @@ export async function hydrateUiStateStore(): Promise<void> {
           }
         } catch (error) {
           console.error("[RENDERER_STATE] Reconciled UI state persistence failed.", error);
+          debouncedPersistState.maybeExecute(reconciledState);
         }
       }
     } catch (error) {
