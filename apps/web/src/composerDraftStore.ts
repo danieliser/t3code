@@ -4157,8 +4157,12 @@ function logComposerPreferencesPersistenceError(error: unknown): void {
   console.error("[RENDERER_STATE] Composer preference persistence failed.", error);
 }
 
-function enqueueComposerPreferencesPersistence(serialized: string): Promise<void> {
+function enqueueComposerPreferencesPersistence(
+  serialized: string,
+  options?: { readonly force?: boolean },
+): Promise<void> {
   if (
+    options?.force !== true &&
     serialized === lastEnqueuedComposerPreferences &&
     lastEnqueuedComposerPreferencesWrite !== null
   ) {
@@ -4333,8 +4337,11 @@ export async function flushComposerPreferencesPersistence(): Promise<void> {
   if (!composerPreferencesHydrated || !composerPreferencesStorage.writesEnabled()) {
     return;
   }
+  await composerPreferencesWriteQueue.catch(() => undefined);
+  debouncedPersistComposerPreferences.cancel();
+  queuedComposerPreferences = null;
   const serialized = serializeComposerPreferences(useComposerDraftStore.getState());
-  await enqueueComposerPreferencesPersistence(serialized);
+  await enqueueComposerPreferencesPersistence(serialized, { force: true });
 }
 
 useComposerDraftStore.subscribe((state) => {
