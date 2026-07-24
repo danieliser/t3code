@@ -463,7 +463,7 @@ describe("rightPanelStore", () => {
     });
   });
 
-  it("opens generated images as reusable named surfaces", () => {
+  it("reuses generated-image surfaces while refreshing them when reopened", () => {
     const activityId = EventId.make("activity-generated-image");
 
     useRightPanelStore.getState().openGeneratedImage(refA, activityId, "first-name.png");
@@ -479,8 +479,30 @@ describe("rightPanelStore", () => {
           kind: "generated-image",
           activityId,
           name: "generated.png",
+          loadRequestId: 2,
         },
         { id: "agents", kind: "agents" },
+      ],
+    });
+  });
+
+  it("refreshes an already-active generated-image surface when reopened", () => {
+    const activityId = EventId.make("activity-generated-image");
+
+    useRightPanelStore.getState().openGeneratedImage(refA, activityId, "generated.png");
+    useRightPanelStore.getState().openGeneratedImage(refA, activityId, "generated.png");
+
+    expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
+      isOpen: true,
+      activeSurfaceId: "generated-image:activity-generated-image",
+      surfaces: [
+        {
+          id: "generated-image:activity-generated-image",
+          kind: "generated-image",
+          activityId,
+          name: "generated.png",
+          loadRequestId: 2,
+        },
       ],
     });
   });

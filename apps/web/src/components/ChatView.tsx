@@ -7834,7 +7834,7 @@ export default function ChatView(props: ChatViewProps) {
       />
     ) : renderedRightPanelSurface?.kind === "generated-image" && activeThreadRef ? (
       <GeneratedImagePanel
-        key={renderedRightPanelSurface.id}
+        key={`${renderedRightPanelSurface.id}:${renderedRightPanelSurface.loadRequestId}`}
         environmentId={activeThreadRef.environmentId}
         threadRef={activeThreadRef}
         activityId={renderedRightPanelSurface.activityId}
