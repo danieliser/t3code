@@ -1468,7 +1468,7 @@ export default function ChatView(props: ChatViewProps) {
     routeKind === "server" ? routeThreadRef.threadId : null,
   );
   useMarkActiveThreadVisited(
-    routeKind === "server" ? routeThreadKey : null,
+    routeThreadKey,
     activeServerThread?.latestTurn?.completedAt ?? null,
   );
   const loadEarlierTurns = useMemo(() => {

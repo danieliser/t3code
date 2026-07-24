@@ -7,6 +7,7 @@ import {
   type ErrorComponentProps,
   useLocation,
   useNavigate,
+  useRouterState,
 } from "@tanstack/react-router";
 import { CheckIcon, CopyIcon } from "lucide-react";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
@@ -60,6 +61,7 @@ import {
   primaryServerWelcomeAtom,
 } from "../state/server";
 import { readProject, setActiveEnvironmentId, useActiveEnvironmentId } from "../state/entities";
+import { resolveThreadRouteTarget } from "../threadRoutes";
 import {
   createKeybindingsUpdateToastController,
   type KeybindingsUpdateToastController,
@@ -187,6 +189,7 @@ function RootRouteView() {
           <ConfirmDialogHost />
           <SlowRpcRequestToastCoordinator />
           <HostedStaticEnvironmentBootstrap />
+          <ActiveThreadRouteTracker />
           <CompletedThreadUnreadTracker />
           {primaryEnvironmentAuthenticated ? (
             <EventRouter skipInitialBootstrapNavigation={returningFromWelcomeRef.current} />
@@ -311,6 +314,24 @@ function HostedStaticEnvironmentBootstrap() {
 
 function CompletedThreadUnreadTracker() {
   useMarkFirstSeenCompletedThreadsUnread();
+  return null;
+}
+
+function ActiveThreadRouteTracker() {
+  const routeKind = useRouterState({
+    select: (state) => {
+      const params = state.matches[state.matches.length - 1]?.params ?? {};
+      return resolveThreadRouteTarget(params)?.kind ?? null;
+    },
+  });
+  const markActiveThreadVisited = useUiStateStore((state) => state.markActiveThreadVisited);
+
+  useEffect(() => {
+    if (routeKind === null) {
+      markActiveThreadVisited(null, null);
+    }
+  }, [markActiveThreadVisited, routeKind]);
+
   return null;
 }
 
