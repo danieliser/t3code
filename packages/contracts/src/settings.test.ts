@@ -432,6 +432,22 @@ describe("ClientSettings sidebar thread filters", () => {
   });
 });
 
+describe("ClientSettings sidebar project visibility", () => {
+  it("shows every project by default", () => {
+    expect(decodeClientSettings({}).sidebarHiddenProjectKeys).toEqual([]);
+  });
+
+  it("accepts persisted and patched hidden project keys", () => {
+    const sidebarHiddenProjectKeys = ["environment-local:project-one"];
+    expect(decodeClientSettings({ sidebarHiddenProjectKeys }).sidebarHiddenProjectKeys).toEqual(
+      sidebarHiddenProjectKeys,
+    );
+    expect(
+      decodeClientSettingsPatch({ sidebarHiddenProjectKeys }).sidebarHiddenProjectKeys,
+    ).toEqual(sidebarHiddenProjectKeys);
+  });
+});
+
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults text generation to Luna at low reasoning effort", () => {
     expect(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection).toEqual({
