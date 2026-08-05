@@ -8313,6 +8313,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     Effect.gen(function* () {
       yield* buildAppUnderTest({
         layers: {
+          orchestrationEngine: {
+            latestSequence: Effect.succeed(7),
+          },
           projectionSnapshotQuery: {
             hasThreadById: () => Effect.succeed(true),
             getThreadShellById: () =>
@@ -9095,6 +9098,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
+            hasThreadById: () => Effect.succeed(true),
             getThreadDetailSnapshot: () =>
               Effect.succeed(Option.some({ snapshotSequence: 5, thread })),
           },
@@ -9384,6 +9388,9 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               ).pipe(Stream.flatMap(() => Stream.make(messageEvent)));
             },
           },
+          projectionSnapshotQuery: {
+            hasThreadById: () => Effect.succeed(true),
+          },
         },
       });
 
@@ -9502,6 +9509,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               }),
           },
           projectionSnapshotQuery: {
+            hasThreadById: () => Effect.succeed(true),
             getEventReplayStats: () =>
               Effect.sync(() => {
                 replayStatsCalls += 1;

@@ -2512,7 +2512,11 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
 });
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
+  return /-(?:nightly|alpha\.patched)\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
+}
+
+function isOfficialNightlyDesktopVersion(version: string): boolean {
+  return /-nightly\.\d{8}\.\d+$/.test(version);
 }
 
 function isDesktopPreviewVersion(version: string): boolean {
@@ -2520,11 +2524,13 @@ function isDesktopPreviewVersion(version: string): boolean {
 }
 
 export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
-  return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
+  return resolveWebAssetBrandForChannel(
+    isOfficialNightlyDesktopVersion(version) ? "nightly" : "latest",
+  );
 }
 
 export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
-  if (resolveDesktopUpdateChannel(version) === "nightly") {
+  if (isOfficialNightlyDesktopVersion(version)) {
     return {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
@@ -2557,7 +2563,7 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 }
 
 export function resolveDesktopProductName(version: string): string {
-  return resolveDesktopUpdateChannel(version) === "nightly"
+  return isOfficialNightlyDesktopVersion(version)
     ? "T3 Code (Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");
 }

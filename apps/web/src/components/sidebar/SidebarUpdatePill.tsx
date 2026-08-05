@@ -14,6 +14,7 @@ import {
   getDesktopUpdateActionError,
   getDesktopUpdateButtonTooltip,
   getDesktopUpdateInstallConfirmationMessage,
+  getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
@@ -179,6 +180,13 @@ function SidebarUpdateControl() {
     if (isInteractionDisabled) return;
 
     setIsActionPending(true);
+
+    if (action === "open-release") {
+      const releaseUrl = getDesktopUpdateReleaseUrl(state.availableVersion);
+      if (releaseUrl) void bridge.openExternal(releaseUrl);
+      setIsActionPending(false);
+      return;
+    }
 
     if (action === "download") {
       void bridge

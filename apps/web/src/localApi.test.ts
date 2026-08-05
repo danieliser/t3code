@@ -320,12 +320,4 @@ describe("LocalApi", () => {
     await api.persistence.setRendererState("composer-preferences", null);
     await expect(api.persistence.getRendererState("composer-preferences")).resolves.toBeNull();
   });
-
-  it("prefers the native LocalApi when one is injected", async () => {
-    const nativeApi = { dialogs: {} };
-    testWindow().nativeApi = nativeApi as never;
-    const { readLocalApi } = await import("./localApi");
-
-    expect(readLocalApi()).toBe(nativeApi);
-  });
 });

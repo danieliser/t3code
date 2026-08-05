@@ -436,7 +436,9 @@ effectIt.effect("stops probing a subscriber's configured paths after its scope c
     yield* Scope.close(docsScope, Exit.void);
 
     requests.length = 0;
-    yield* TestClock.adjust(Duration.seconds(15));
+    // The patched poller runs every 10s and keeps positive probes for 15s,
+    // so the first post-expiry network probe lands on the 20s tick.
+    yield* TestClock.adjust(Duration.seconds(21));
     expect(requests).toContain(adminUrl);
     expect(requests).not.toContain(docsUrl);
   }).pipe(Effect.scoped, Effect.provide(layer));

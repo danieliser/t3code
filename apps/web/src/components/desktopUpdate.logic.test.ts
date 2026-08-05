@@ -44,6 +44,17 @@ describe("desktop update button state", () => {
     expect(resolveDesktopUpdateButtonAction(state)).toBe("download");
   });
 
+  it("opens the hosted release for unsigned Nightly++ updates", () => {
+    expect(
+      resolveDesktopUpdateButtonAction({
+        ...baseState,
+        currentVersion: "0.0.32-alpha.patched.20260805.107",
+        status: "available",
+        availableVersion: "0.0.33-alpha.patched.20260806.108",
+      }),
+    ).toBe("open-release");
+  });
+
   it("keeps retry action available after a download error", () => {
     const state: DesktopUpdateState = {
       ...baseState,
@@ -189,6 +200,12 @@ describe("desktop update UI helpers", () => {
   it("builds the nightly release URL without dropping its version suffix", () => {
     expect(getDesktopUpdateReleaseUrl("0.0.30-nightly.20260728.931")).toBe(
       "https://github.com/pingdotgg/t3code/releases/tag/v0.0.30-nightly.20260728.931",
+    );
+  });
+
+  it("builds Nightly++ release URLs against the fork feed", () => {
+    expect(getDesktopUpdateReleaseUrl("0.0.32-alpha.patched.20260805.107")).toBe(
+      "https://github.com/danieliser/t3code/releases/tag/v0.0.32-alpha.patched.20260805.107",
     );
   });
 

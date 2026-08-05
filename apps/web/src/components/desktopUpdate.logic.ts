@@ -1,9 +1,15 @@
 import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
 
-export type DesktopUpdateButtonAction = "download" | "install" | "none";
+export type DesktopUpdateButtonAction = "download" | "install" | "open-release" | "none";
 
 const DESKTOP_RELEASE_HISTORY_URL = "https://github.com/pingdotgg/t3code/releases";
 const DESKTOP_RELEASE_TAG_URL = `${DESKTOP_RELEASE_HISTORY_URL}/tag`;
+const PATCHED_NIGHTLY_RELEASE_TAG_URL = "https://github.com/danieliser/t3code/releases/tag";
+const PATCHED_NIGHTLY_VERSION_PATTERN = /-alpha\.patched\.\d{8}\.\d+$/;
+
+export function isPatchedNightlyDesktopVersion(version: string | null): boolean {
+  return PATCHED_NIGHTLY_VERSION_PATTERN.test(version?.trim() ?? "");
+}
 
 /**
  * The main process fills `downloadedVersion` from the updater's `update-downloaded`
@@ -18,7 +24,10 @@ export function getDesktopUpdateDownloadedVersion(state: DesktopUpdateState): st
 export function getDesktopUpdateReleaseUrl(version: string | null): string | null {
   const normalizedVersion = version?.trim();
   if (!normalizedVersion) return null;
-  return `${DESKTOP_RELEASE_TAG_URL}/v${encodeURIComponent(normalizedVersion)}`;
+  const releaseRoot = isPatchedNightlyDesktopVersion(normalizedVersion)
+    ? PATCHED_NIGHTLY_RELEASE_TAG_URL
+    : DESKTOP_RELEASE_TAG_URL;
+  return `${releaseRoot}/v${encodeURIComponent(normalizedVersion)}`;
 }
 
 export function getDesktopUpdateReleaseHistoryUrl(): string {
@@ -37,11 +46,11 @@ export function resolveDesktopUpdateButtonAction(
     return "install";
   }
   if (state.status === "available") {
-    return "download";
+    return isPatchedNightlyDesktopVersion(state.currentVersion) ? "open-release" : "download";
   }
   if (state.status === "error") {
     if (state.errorContext === "download" && state.availableVersion) {
-      return "download";
+      return isPatchedNightlyDesktopVersion(state.currentVersion) ? "open-release" : "download";
     }
   }
   return "none";
@@ -72,6 +81,9 @@ export function getArm64IntelBuildWarningDescription(state: DesktopUpdateState):
 
 export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string {
   if (state.status === "available") {
+    if (isPatchedNightlyDesktopVersion(state.currentVersion)) {
+      return `Update ${state.availableVersion ?? "available"} ready on the Nightly++ releases page`;
+    }
     return `Update ${state.availableVersion ?? "available"} ready to download`;
   }
   if (state.status === "downloading") {

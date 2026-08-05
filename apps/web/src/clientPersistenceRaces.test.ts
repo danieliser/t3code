@@ -113,6 +113,7 @@ describe("desktop client persistence races", () => {
     initialRead.resolve(
       JSON.stringify({
         projectOrder: ["project-old"],
+        threadChangedFilesExpansionVersion: 1,
         threadChangedFilesExpandedById: {
           "thread-1": {
             "turn-baseline": false,

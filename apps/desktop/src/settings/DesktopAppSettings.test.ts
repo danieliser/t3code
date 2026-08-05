@@ -120,6 +120,14 @@ describe("DesktopSettings", () => {
     );
   });
 
+  it("defaults patched Alpha builds to their Nightly++ update feed", () => {
+    assert.equal(
+      DesktopAppSettings.resolveDefaultDesktopSettings("0.0.32-alpha.patched.20260805.107")
+        .updateChannel,
+      "nightly",
+    );
+  });
+
   it.effect("loads persisted settings and applies semantic updates", () =>
     withSettings(
       Effect.gen(function* () {

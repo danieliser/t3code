@@ -1,0 +1,161 @@
+name: Nightly++
+
+on:
+  schedule:
+    - cron: "35 */3 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Rebuild even when the newest upstream Nightly is already included"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-plus
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Refresh patch stack
+    runs-on: ubuntu-24.04
+    outputs:
+      should_build: ${{ steps.refresh.outputs.should_build }}
+      version: ${{ steps.refresh.outputs.version }}
+      tag: ${{ steps.refresh.outputs.tag }}
+      source_sha: ${{ steps.refresh.outputs.source_sha }}
+      upstream_tag: ${{ steps.refresh.outputs.upstream_tag }}
+    steps:
+      - name: Checkout Nightly++ branch
+        uses: actions/checkout@v6
+        with:
+          ref: perf/patched-nightly
+          fetch-depth: 0
+
+      - id: refresh
+        name: Detect and replay the newest upstream Nightly
+        env:
+          FORCE_BUILD: ${{ github.event.inputs.force }}
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/pingdotgg/t3code.git
+          git fetch --tags upstream main
+
+          upstream_tag=$(git tag --list 'v*-nightly.*' --sort=-version:refname | head -n 1)
+          if [[ -z "$upstream_tag" ]]; then
+            echo "No upstream Nightly tag was found." >&2
+            exit 1
+          fi
+          upstream_tag_sha=$(git rev-list -n 1 "$upstream_tag")
+
+          if [[ "$FORCE_BUILD" != "true" ]] && git merge-base --is-ancestor "$upstream_tag_sha" HEAD; then
+            echo "Newest upstream Nightly ($upstream_tag) is already included."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          remote_head=$(git rev-parse origin/perf/patched-nightly)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          scripts/update-patched-nightly.sh --remote upstream
+          git push --force-with-lease="refs/heads/perf/patched-nightly:$remote_head" origin HEAD:perf/patched-nightly
+
+          nightly_version=${upstream_tag#v}
+          base_version=${nightly_version%%-nightly.*}
+          nightly_date=$(printf '%s' "$nightly_version" | sed -E 's/^.*-nightly\.([0-9]{8})\..*$/\1/')
+          replay_count=$(git rev-list --count upstream/main..HEAD)
+          version="$base_version-alpha.patched.$nightly_date.$replay_count"
+
+          echo "should_build=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "upstream_tag=$upstream_tag" >> "$GITHUB_OUTPUT"
+
+  build_macos:
+    name: Build macOS arm64 release
+    needs: refresh
+    if: needs.refresh.outputs.should_build == 'true'
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - name: Checkout refreshed source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.refresh.outputs.source_sha }}
+          fetch-depth: 0
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Ensure Electron runtime is installed
+        run: vp run --filter @t3tools/desktop ensure:electron
+
+      - name: Build Nightly++ DMG and updater feed
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MACOS_PROVISIONING_PROFILE: ${{ secrets.MACOS_PROVISIONING_PROFILE }}
+          T3CODE_DESKTOP_UPDATE_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          args=(
+            --platform mac
+            --target dmg
+            --arch arm64
+            --build-version "${{ needs.refresh.outputs.version }}"
+            --verbose
+          )
+
+          if [[ -n "${CSC_LINK:-}" && -n "${CSC_KEY_PASSWORD:-}" && -n "${APPLE_API_KEY:-}" && -n "${APPLE_API_KEY_ID:-}" && -n "${APPLE_API_ISSUER:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${MACOS_PROVISIONING_PROFILE:-}" ]]; then
+            key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
+            printf '%s' "$APPLE_API_KEY" > "$key_path"
+            export APPLE_API_KEY="$key_path"
+
+            profile_path="$RUNNER_TEMP/t3code.provisionprofile"
+            printf '%s' "$MACOS_PROVISIONING_PROFILE" | base64 -D > "$profile_path"
+            export T3CODE_APPLE_TEAM_ID="$APPLE_TEAM_ID"
+            export T3CODE_MACOS_PROVISIONING_PROFILE="$profile_path"
+            args+=(--signed)
+          else
+            echo "Apple signing secrets are incomplete; publishing a manual-install DMG."
+          fi
+
+          vp run dist:desktop:artifact "${args[@]}"
+
+      - name: Publish Nightly++ prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ needs.refresh.outputs.tag }}"
+          title="T3 Code Nightly++ ${{ needs.refresh.outputs.version }}"
+          notes="Replayed the Nightly++ patch stack onto upstream ${{ needs.refresh.outputs.upstream_tag }}. Unsigned builds use manual DMG installation; signed builds can use the built-in installer."
+
+          shopt -s nullglob
+          assets=(release/*.dmg release/*.zip release/*.yml)
+          if [[ ${#assets[@]} -eq 0 ]]; then
+            echo "No release assets were produced." >&2
+            exit 1
+          fi
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" \
+              --target "${{ needs.refresh.outputs.source_sha }}" \
+              --title "$title" \
+              --notes "$notes" \
+              --prerelease
+          fi
