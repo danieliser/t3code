@@ -31,6 +31,7 @@ import * as EnvironmentSupervisor from "../connection/supervisor.ts";
 import * as Persistence from "../platform/persistence.ts";
 import * as RpcSession from "../rpc/session.ts";
 import type { ThreadSnapshotWindow } from "./threadSnapshotHttp.ts";
+import { environmentShellMembershipLayer } from "./shellMembership.ts";
 import {
   INITIAL_THREAD_USER_TURN_LIMIT,
   makeEnvironmentThreadState,
@@ -211,6 +212,7 @@ const makeHarness = Effect.fn("TestThreadPagination.makeHarness")(function* (opt
     Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor),
     Effect.provideService(Persistence.EnvironmentCacheStore, cache),
     Effect.provideService(ThreadSnapshotLoader, snapshotLoader),
+    Effect.provide(environmentShellMembershipLayer),
   );
   yield* SubscriptionRef.changes(threadState).pipe(
     Stream.runForEach((state) => Queue.offer(observed, state)),

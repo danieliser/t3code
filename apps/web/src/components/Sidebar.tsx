@@ -45,6 +45,8 @@ import {
   FolderIcon,
   FolderPlusIcon,
   GitBranchIcon,
+  EyeIcon,
+  EyeOffIcon,
   PinIcon,
   PinOffIcon,
   PlusIcon,
@@ -108,7 +110,7 @@ import { useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
-import { useClientSettings } from "../hooks/useSettings";
+import { useClientSettings, useUpdateClientSettings } from "../hooks/useSettings";
 import { useCopyToClipboard } from "../hooks/useCopyToClipboard";
 import { useLocalStorage } from "../hooks/useLocalStorage";
 import { useNowMinute } from "../hooks/useNowMinute";
@@ -144,6 +146,10 @@ import {
   formatWorkingDurationLabel,
   firstValidTimestampMs,
   hasUnseenCompletion,
+  filterSidebarThreadsForActiveRoute,
+  matchesSidebarThreadFilters,
+  partitionSidebarProjectsByHiddenState,
+  resolveSidebarArchiveEnvironmentIds,
   isSidebarNestedLinkClick,
   isTrailingDoubleClick,
   orderItemsByPreferredIds,
@@ -170,6 +176,8 @@ import {
   type SidebarListItem,
   type SidebarListMarker,
   type SidebarSection,
+  startSidebarRecentFilterClock,
+  updateSidebarHiddenProjectKeys,
 } from "./Sidebar.logic";
 import { resolveLocalCheckoutBranchMismatch } from "./BranchToolbar.logic";
 import {
@@ -217,6 +225,14 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, SidebarMenuButton, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarFilterMenu } from "./sidebar/SidebarFilterMenu";
+import {
+  buildSidebarProviderFilterState,
+  sidebarProviderInstanceKey,
+} from "./sidebar/sidebarProviderFilters";
+import { HiddenProjectsShelfLabel } from "./HiddenProjectsShelfLabel";
+import { ThreadLabelBadgesForThread, ThreadLabelPickerDialog } from "./ThreadLabels";
+import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
 import {
@@ -983,7 +999,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   variant: "card" | "slim";
   // Slim rows are either settled (action: un-settle) or merely quiet
   // (seen Ready threads — action: settle).
-  variantAction: "settle" | "unsettle" | "unsnooze";
+  variantAction: "settle" | "unsettle" | "unsnooze" | "unarchive";
   // False on environments whose server predates thread.settle/unsettle:
   // the lifecycle affordances hide entirely rather than fail on click.
   settlementSupported: boolean;
@@ -1033,6 +1049,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   onUnsettle: (threadRef: ScopedThreadRef) => void;
   onSnooze: (threadRef: ScopedThreadRef, preset: SnoozePreset) => void;
   onUnsnooze: (threadRef: ScopedThreadRef) => void;
+  onUnarchive: (threadRef: ScopedThreadRef) => void;
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
 }) {
@@ -1050,6 +1067,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     onThreadClick,
     onUnsettle,
     onUnsnooze,
+    onUnarchive,
     onUnpin,
     openPullRequestsInRightPanel,
     renamingTitle,
@@ -1187,18 +1205,18 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                     className: "text-blue-600 dark:text-blue-300/90",
                   }
                 : isWoke
-                ? {
-                    label: "Woke",
-                    icon: "woke" as const,
-                    className: "text-amber-700 dark:text-amber-300",
-                  }
-                : isUnread
                   ? {
-                      label: "Done",
-                      icon: "done" as const,
-                      className: "text-emerald-700 dark:text-emerald-300",
+                      label: "Woke",
+                      icon: "woke" as const,
+                      className: "text-amber-700 dark:text-amber-300",
                     }
-                  : null;
+                  : isUnread
+                    ? {
+                        label: "Done",
+                        icon: "done" as const,
+                        className: "text-emerald-700 dark:text-emerald-300",
+                      }
+                    : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1348,6 +1366,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       onUnpin(threadRef);
     },
     [onUnpin, threadRef],
+  );
+  const handleUnarchiveClick = useCallback(
+    (event: ReactMouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onUnarchive(threadRef);
+    },
+    [onUnarchive, threadRef],
   );
   const handleSnoozePreset = useCallback(
     (preset: SnoozePreset) => {
@@ -1616,6 +1642,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             {draftIndicator}
             {title}
             {pinIndicator}
+            <ThreadLabelBadgesForThread threadKey={threadKey} compact maxVisible={1} />
             {terminalStatusIcon}
             {isRegeneratingTitle ? (
               <span role="status" className="sr-only">
@@ -1683,6 +1710,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                       <AlarmClockOffIcon className="mb-px size-3" />
                     </button>
                   )
+                ) : variantAction === "unarchive" ? (
+                  <button
+                    type="button"
+                    aria-label="Unarchive thread"
+                    onClick={handleUnarchiveClick}
+                    className="pointer-events-none absolute inset-y-0 right-0 -mr-1 inline-flex cursor-pointer items-center gap-1 rounded-md bg-transparent px-1.5 text-xs text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 group-hover/sidebar-row:pointer-events-auto group-hover/sidebar-row:opacity-100"
+                  >
+                    <Undo2Icon className="mb-px size-3.5" />
+                  </button>
                 ) : !props.settlementSupported ? null : variantAction === "unsettle" ? (
                   <Tooltip>
                     <TooltipTrigger
@@ -1907,6 +1943,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             </div>
             <div className="mt-1 flex min-w-0">
               {title}
+              <ThreadLabelBadgesForThread
+                threadKey={threadKey}
+                compact
+                maxVisible={1}
+                className="ml-1.5"
+              />
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
                   Regenerating title
@@ -2117,9 +2159,12 @@ export default function Sidebar() {
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
+  const sidebarHiddenProjectKeys = useClientSettings((s) => s.sidebarHiddenProjectKeys);
   const sidebarProjectSortOrder = useClientSettings((s) => s.sidebarProjectSortOrder);
+  const sidebarThreadFilters = useClientSettings((s) => s.sidebarThreadFilters);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
+  const updateClientSettings = useUpdateClientSettings();
   const {
     settleThread,
     unsettleThread,
@@ -2131,6 +2176,7 @@ export default function Sidebar() {
     reorderPinnedThread,
     reorderActiveThread,
     archiveThread,
+    unarchiveThread,
     deleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
@@ -2191,6 +2237,11 @@ export default function Sidebar() {
       );
     },
   });
+  const [hiddenProjectsExpanded, setHiddenProjectsExpanded] = useState(false);
+  const [threadLabelPickerTarget, setThreadLabelPickerTarget] = useState<{
+    readonly threadKeys: readonly string[];
+    readonly targetLabel: string;
+  } | null>(null);
   const newThreadContext = useHandleNewThread();
   const openAddProjectCommandPalette = useCallback(
     () => openCommandPalette({ open: "add-project" }),
@@ -2198,12 +2249,37 @@ export default function Sidebar() {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  const archiveEnvironmentIds = useMemo(
+    () =>
+      resolveSidebarArchiveEnvironmentIds({
+        availableEnvironmentIds: environments.map((environment) => environment.environmentId),
+        selectedEnvironmentIds: sidebarThreadFilters.environmentIds,
+        includeArchived: sidebarThreadFilters.includeArchived,
+      }),
+    [environments, sidebarThreadFilters.environmentIds, sidebarThreadFilters.includeArchived],
+  );
+  const {
+    snapshots: archivedSnapshots,
+    error: archiveError,
+    isLoading: archiveLoading,
+  } = useArchivedThreadSnapshots(archiveEnvironmentIds);
+  const archivedThreadShells = useMemo(
+    () =>
+      archivedSnapshots.flatMap(({ environmentId, snapshot }) =>
+        snapshot.threads
+          .filter((thread) => thread.archivedAt !== null)
+          .map((thread) => ({ ...thread, environmentId })),
+      ),
+    [archivedSnapshots],
+  );
   const clearSelection = useThreadSelectionStore((s) => s.clearSelection);
   const setSelectionAnchor = useThreadSelectionStore((s) => s.setAnchor);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
   const markThreadUnread = useUiStateStore((s) => s.markThreadUnread);
   const markThreadVisited = useUiStateStore((s) => s.markThreadVisited);
+  const threadLastVisitedAtById = useUiStateStore((s) => s.threadLastVisitedAtById);
+  const threadExplicitlyUnreadById = useUiStateStore((s) => s.threadExplicitlyUnreadById);
   const acknowledgeWoke = useCallback(
     (threadRef: ScopedThreadRef, visitedAt: string) => {
       markThreadVisited(scopedThreadKey(threadRef), visitedAt);
@@ -2290,6 +2366,26 @@ export default function Sidebar() {
   // Threads on non-primary environments (T3 Connect, hosted) resolve their
   // provider entry from their own environment's config: default instance ids
   // are driver slugs, so a flat map would collide across environments.
+  const { hiddenProjects, visibleProjects } = useMemo(
+    () =>
+      partitionSidebarProjectsByHiddenState({
+        projects: projectGroups,
+        threads,
+        hiddenProjectKeys: sidebarHiddenProjectKeys,
+      }),
+    [projectGroups, sidebarHiddenProjectKeys, threads],
+  );
+  const visibleProjectRefKeys = useMemo(
+    () =>
+      new Set(
+        visibleProjects.flatMap((project) =>
+          project.memberProjectRefs.map(
+            (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+          ),
+        ),
+      ),
+    [visibleProjects],
+  );
   const providerEntriesByEnvironment = useMemo(
     () =>
       deriveProviderEntriesByEnvironment(
@@ -2361,12 +2457,12 @@ export default function Sidebar() {
   const projectScopeItems = useMemo(
     () => [
       { value: "all", label: "All projects" },
-      ...projectGroups.map((project) => ({
+      ...visibleProjects.map((project) => ({
         value: project.projectKey,
         label: project.displayName,
       })),
     ],
-    [projectGroups],
+    [visibleProjects],
   );
   const projectGroupByScopeKey = useMemo(
     () => new Map(projectGroups.map((project) => [project.projectKey, project] as const)),
@@ -2490,6 +2586,25 @@ export default function Sidebar() {
     [openProjectSettings],
   );
 
+  const sidebarProviderFilters = useMemo(
+    () => buildSidebarProviderFilterState(serverConfigs),
+    [serverConfigs],
+  );
+  const [recentFilterNowMs, setRecentFilterNowMs] = useState(() => Date.now());
+  useEffect(
+    () =>
+      startSidebarRecentFilterClock({
+        enabled: sidebarThreadFilters.recentOnly,
+        onTick: setRecentFilterNowMs,
+      }),
+    [sidebarThreadFilters.recentOnly],
+  );
+  const handleSidebarThreadFiltersChange = useCallback(
+    (filters: typeof sidebarThreadFilters) =>
+      updateClientSettings({ sidebarThreadFilters: filters }),
+    [updateClientSettings],
+  );
+
   // Keep a dropped row at its destination while its server applies the
   // lifecycle command and any order-key writes. The next pickup waits for
   // this hold so a second drop cannot replace an unconfirmed placement.
@@ -2512,6 +2627,7 @@ export default function Sidebar() {
     draggableThreadKeys,
     activeReorderableThreadKeys,
     activeThreads,
+    archivedThreads,
     snoozedThreads,
     settledThreads,
     snoozeNow,
@@ -2522,19 +2638,42 @@ export default function Sidebar() {
     // memo exactly at the next wake boundary.
     void snoozeWakeTick;
     const preciseNow = new Date().toISOString();
-    const visible = threads.filter(
-      (thread) =>
-        thread.archivedAt === null &&
-        (scopedProjectKeys === null ||
-          scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
-    );
+    const visible = filterSidebarThreadsForActiveRoute({
+      threads: [...threads, ...archivedThreadShells],
+      activeThreadKey: routeThreadKey,
+      getThreadKey: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      matchesFilters: (thread) => {
+        const projectRefKey = `${thread.environmentId}:${thread.projectId}`;
+        if (!visibleProjectRefKeys.has(projectRefKey)) return false;
+        if (scopedProjectKeys !== null && !scopedProjectKeys.has(projectRefKey)) return false;
+        const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+        const modelInstanceId =
+          thread.session?.providerInstanceId ?? thread.modelSelection.instanceId;
+        return matchesSidebarThreadFilters({
+          thread,
+          lastVisitedAt: threadLastVisitedAtById[threadKey],
+          isExplicitlyUnread: threadExplicitlyUnreadById[threadKey] === true,
+          providerDriverKind:
+            sidebarProviderFilters.driverKindByScopedInstanceKey.get(
+              sidebarProviderInstanceKey(thread.environmentId, modelInstanceId),
+            ) ?? null,
+          filters: sidebarThreadFilters,
+          nowMs: recentFilterNowMs,
+        });
+      },
+    });
     const pinned: EnvironmentThreadShell[] = [];
     const active: EnvironmentThreadShell[] = [];
     const snoozed: EnvironmentThreadShell[] = [];
     const settled: EnvironmentThreadShell[] = [];
+    const archived: EnvironmentThreadShell[] = [];
     const draggable = new Set<string>();
     const activeReorderable = new Set<string>();
     for (const thread of visible) {
+      if (thread.archivedAt !== null) {
+        archived.push(thread);
+        continue;
+      }
       const capabilities = serverConfigs.get(thread.environmentId)?.environment.capabilities;
       // Threads on servers without the settlement capability (old server,
       // or descriptor not loaded yet) never classify as settled: the user
@@ -2603,6 +2742,7 @@ export default function Sidebar() {
               preferredIds: optimisticDrop.order,
               getId: (thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
             }),
+      archivedThreads: sortThreadsForSidebar(archived),
       // Soonest wake first: "what comes back next" is the shelf's question.
       snoozedThreads: snoozed.toSorted(
         (left, right) =>
@@ -2612,15 +2752,36 @@ export default function Sidebar() {
       settledThreads: sortSettledThreadsForSidebar(settled),
       snoozeNow: preciseNow,
     };
-  }, [nowMinute, optimisticDrop, scopedProjectKeys, serverConfigs, snoozeWakeTick, threads]);
+  }, [
+    archivedThreadShells,
+    nowMinute,
+    optimisticDrop,
+    recentFilterNowMs,
+    routeThreadKey,
+    scopedProjectKeys,
+    serverConfigs,
+    sidebarProviderFilters.driverKindByScopedInstanceKey,
+    sidebarThreadFilters,
+    snoozeWakeTick,
+    threadExplicitlyUnreadById,
+    threadLastVisitedAtById,
+    threads,
+    visibleProjectRefKeys,
+  ]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const searchableThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...snoozedThreads, ...settledThreads],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads],
+    () => [
+      ...pinnedThreads,
+      ...activeThreads,
+      ...snoozedThreads,
+      ...settledThreads,
+      ...archivedThreads,
+    ],
+    [activeThreads, archivedThreads, pinnedThreads, settledThreads, snoozedThreads],
   );
   const threadSearchResults = useMemo(
     () => searchSidebarThreadsByTitle(searchableThreads, threadSearchQuery),
@@ -2711,6 +2872,17 @@ export default function Sidebar() {
     return routeThread === undefined ? [] : [routeThread];
   }, [routeThreadKey, settledShelfExpanded, visibleSettledThreads]);
 
+  const [archivedVisibleCount, setArchivedVisibleCount] = useState(SETTLED_TAIL_INITIAL_COUNT);
+  const visibleArchivedThreads = useMemo(
+    () => archivedThreads.slice(0, archivedVisibleCount),
+    [archivedThreads, archivedVisibleCount],
+  );
+  const hiddenArchivedCount = archivedThreads.length - visibleArchivedThreads.length;
+  const showMoreArchived = useCallback(
+    () => setArchivedVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
+    [],
+  );
+
   // The snoozed shelf is collapsed by default: out of the way, never gone.
   // Collapsed threads don't render (and so don't participate in jump
   // shortcuts or multi-select), matching the settled tail's paging model.
@@ -2738,8 +2910,20 @@ export default function Sidebar() {
   }, [routeThreadKey, snoozedShelfExpanded, snoozedThreads]);
 
   const orderedThreads = useMemo(
-    () => [...pinnedThreads, ...activeThreads, ...visibleSnoozedThreads, ...renderedSettledThreads],
-    [pinnedThreads, activeThreads, visibleSnoozedThreads, renderedSettledThreads],
+    () => [
+      ...pinnedThreads,
+      ...activeThreads,
+      ...visibleSnoozedThreads,
+      ...renderedSettledThreads,
+      ...visibleArchivedThreads,
+    ],
+    [
+      pinnedThreads,
+      activeThreads,
+      visibleSnoozedThreads,
+      renderedSettledThreads,
+      visibleArchivedThreads,
+    ],
   );
   const orderedThreadKeys = useMemo(
     () =>
@@ -3056,6 +3240,24 @@ export default function Sidebar() {
       })();
     },
     [unsnoozeThread],
+  );
+  const attemptUnarchive = useCallback(
+    (threadRef: ScopedThreadRef) => {
+      void (async () => {
+        const result = await unarchiveThread(threadRef);
+        if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+          const error = squashAtomCommandFailure(result);
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Failed to unarchive thread",
+              description: error instanceof Error ? error.message : "An error occurred.",
+            }),
+          );
+        }
+      })();
+    },
+    [unarchiveThread],
   );
   const threadListRef = useRef<HTMLUListElement | null>(null);
   const dragLabelOffsetRef = useRef(0);
@@ -3690,6 +3892,10 @@ export default function Sidebar() {
         const thread = threadByKeyRef.current.get(threadKey);
         return thread ? [thread] : [];
       });
+      const selectedArchivedThreads = selectedThreads.filter(
+        (thread) => thread.archivedAt !== null,
+      );
+      const selectedActiveThreads = selectedThreads.filter((thread) => thread.archivedAt === null);
       const canSnoozeSelection = selectedThreads.every(
         (thread) =>
           serverConfigs.get(thread.environmentId)?.environment.capabilities.threadSnooze === true &&
@@ -3723,7 +3929,12 @@ export default function Sidebar() {
         api.contextMenu.show(
           [
             ...(unpinMenuItem ? [unpinMenuItem] : []),
-            { id: "settle", label: `Settle (${count})` },
+            ...(selectedActiveThreads.length > 0
+              ? [{ id: "settle", label: `Settle (${selectedActiveThreads.length})` }]
+              : []),
+            ...(selectedArchivedThreads.length > 0
+              ? [{ id: "unarchive", label: `Unarchive (${selectedArchivedThreads.length})` }]
+              : []),
             ...(canSnoozeSelection
               ? [
                   {
@@ -3737,6 +3948,7 @@ export default function Sidebar() {
                 ]
               : []),
             ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
+            { id: "add-label", label: `Add label (${count})` },
             { id: "mark-unread", label: `Mark unread (${count})` },
             { id: "delete", label: `Delete (${count})`, destructive: true },
           ],
@@ -3834,6 +4046,13 @@ export default function Sidebar() {
         clearSelection();
         return;
       }
+      if (clicked.value === "add-label") {
+        setThreadLabelPickerTarget({
+          threadKeys,
+          targetLabel: `${count} selected chats`,
+        });
+        return;
+      }
       if (clicked.value === "settle") {
         // Post-settle navigation must skip threads settling in this same
         // batch — they are all leaving the card block together. Rows that
@@ -3845,6 +4064,13 @@ export default function Sidebar() {
           const thread = threadByKeyRef.current.get(threadKey);
           if (!thread || thread.settledOverride === "settled") continue;
           attemptSettle(scopeThreadRef(thread.environmentId, thread.id), { coSettlingKeys });
+        }
+        clearSelection();
+        return;
+      }
+      if (clicked.value === "unarchive") {
+        for (const thread of selectedArchivedThreads) {
+          attemptUnarchive(scopeThreadRef(thread.environmentId, thread.id));
         }
         clearSelection();
         return;
@@ -3899,6 +4125,7 @@ export default function Sidebar() {
     },
     [
       attemptSettle,
+      attemptUnarchive,
       attemptSnooze,
       attemptUnpin,
       clearSelection,
@@ -3945,6 +4172,7 @@ export default function Sidebar() {
           serverConfigs.get(thread.environmentId)?.environment.capabilities
             .threadTitleRegeneration === true;
         const isRegeneratingTitle = thread.titleRegeneration != null;
+        const isArchived = thread.archivedAt !== null;
         const isSettled = settledThreadKeysRef.current.has(threadKey);
         const isSnoozed = snoozedThreadKeysRef.current.has(threadKey);
         const isPinned = thread.pinnedAt != null;
@@ -3952,23 +4180,33 @@ export default function Sidebar() {
         const snoozePresets = resolveSnoozePresets(new Date(), timestampFormat);
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            buildThreadActionMenuItems({
-              branch: thread.branch ?? null,
-              isPinned,
-              isSettled,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning:
-                thread.session?.status === "running" && thread.session.activeTurnId != null,
-              supports: {
-                settlement: supportsSettlement,
-                snooze: supportsSnooze,
-                pinning: supportsPinning,
-                titleRegeneration: supportsTitleRegeneration,
-              },
-              snoozePresets,
-            }),
+            isArchived
+              ? [
+                  { id: "unarchive" as const, label: "Unarchive thread" },
+                  { id: "add-label" as const, label: "Add label" },
+                  { id: "copy-thread-id" as const, label: "Copy thread ID", icon: "copy" },
+                  { id: "delete" as const, label: "Delete", destructive: true, icon: "trash" },
+                ]
+              : [
+                  ...buildThreadActionMenuItems({
+                    branch: thread.branch ?? null,
+                    isPinned,
+                    isSettled,
+                    isSnoozed,
+                    canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+                    isRegeneratingTitle,
+                    isRunning:
+                      thread.session?.status === "running" && thread.session.activeTurnId != null,
+                    supports: {
+                      settlement: supportsSettlement,
+                      snooze: supportsSnooze,
+                      pinning: supportsPinning,
+                      titleRegeneration: supportsTitleRegeneration,
+                    },
+                    snoozePresets,
+                  }),
+                  { id: "add-label" as const, label: "Add label" },
+                ],
             position,
           ),
         );
@@ -4021,6 +4259,9 @@ export default function Sidebar() {
           case "unsettle":
             attemptUnsettle(threadRef);
             return;
+          case "unarchive":
+            attemptUnarchive(threadRef);
+            return;
           case "unsnooze":
             attemptUnsnooze(threadRef);
             return;
@@ -4051,6 +4292,12 @@ export default function Sidebar() {
             }
             return;
           }
+          case "add-label":
+            setThreadLabelPickerTarget({
+              threadKeys: [threadKey],
+              targetLabel: `“${thread.title}”`,
+            });
+            return;
           case "mark-unread":
             markThreadUnread(threadKey, thread.latestTurn?.completedAt);
             return;
@@ -4141,6 +4388,7 @@ export default function Sidebar() {
       attemptSettle,
       attemptSnooze,
       attemptUnpin,
+      attemptUnarchive,
       attemptUnsettle,
       attemptUnsnooze,
       confirmThreadArchive,
@@ -4487,27 +4735,115 @@ export default function Sidebar() {
                             )}
                             <span className="min-w-0 flex-1 truncate text-sm">{item.label}</span>
                             {project ? (
-                              <Button
-                                size="icon-xs"
-                                variant="ghost-muted"
-                                tabIndex={-1}
-                                aria-hidden="true"
-                                title={`Project settings for ${project.displayName}`}
-                                className="ml-auto size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
-                                onPointerDown={(event) => event.stopPropagation()}
-                                onClick={(event) => {
-                                  void handleProjectSettings(event, project);
-                                }}
-                              >
-                                <SettingsIcon className="size-3.5" />
-                              </Button>
+                              <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost-muted"
+                                  aria-label={`Hide ${project.displayName}`}
+                                  title={`Hide ${project.displayName}`}
+                                  className="size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    updateClientSettings({
+                                      sidebarHiddenProjectKeys: updateSidebarHiddenProjectKeys({
+                                        hiddenProjectKeys: sidebarHiddenProjectKeys,
+                                        projectRefs: project.memberProjectRefs,
+                                        hidden: true,
+                                      }),
+                                    });
+                                    if (projectScopeKey === project.projectKey) {
+                                      setProjectScopeKey(null);
+                                    }
+                                  }}
+                                >
+                                  <EyeOffIcon className="size-3.5" />
+                                </Button>
+                                <Button
+                                  size="icon-xs"
+                                  variant="ghost-muted"
+                                  aria-label={`Project settings for ${project.displayName}`}
+                                  title={`Project settings for ${project.displayName}`}
+                                  className="size-6 [--control-icon-color:currentColor] text-icon-muted focus-visible:bg-accent focus-visible:text-foreground"
+                                  onPointerDown={(event) => event.stopPropagation()}
+                                  onClick={(event) => {
+                                    void handleProjectSettings(event, project);
+                                  }}
+                                >
+                                  <SettingsIcon className="size-3.5" />
+                                </Button>
+                              </div>
                             ) : null}
                           </ComboboxItem>
                         );
                       }}
                     </ComboboxList>
+                    {hiddenProjects.length > 0 ? (
+                      <div className="shrink-0 border-t border-border/60 px-1 py-1">
+                        <button
+                          type="button"
+                          className="flex h-7 w-full cursor-pointer items-center rounded-md px-2 text-left text-xs font-medium text-muted-foreground/60 hover:bg-accent/60 hover:text-foreground"
+                          onClick={() => setHiddenProjectsExpanded((expanded) => !expanded)}
+                        >
+                          <HiddenProjectsShelfLabel
+                            count={hiddenProjects.length}
+                            expanded={hiddenProjectsExpanded}
+                          />
+                        </button>
+                        {hiddenProjectsExpanded
+                          ? hiddenProjects.map((project) => (
+                              <button
+                                key={project.projectKey}
+                                type="button"
+                                className="flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left text-muted-foreground/65 hover:bg-accent/60 hover:text-foreground"
+                                onClick={() =>
+                                  updateClientSettings({
+                                    sidebarHiddenProjectKeys: updateSidebarHiddenProjectKeys({
+                                      hiddenProjectKeys: sidebarHiddenProjectKeys,
+                                      projectRefs: project.memberProjectRefs,
+                                      hidden: false,
+                                    }),
+                                  })
+                                }
+                              >
+                                <ProjectFavicon
+                                  environmentId={project.environmentId}
+                                  cwd={project.workspaceRoot}
+                                  faviconPath={project.faviconPath}
+                                  className="size-4 shrink-0 opacity-70"
+                                />
+                                <span className="min-w-0 flex-1 truncate text-sm">
+                                  {project.displayName}
+                                </span>
+                                <EyeIcon className="size-3.5 shrink-0" />
+                              </button>
+                            ))
+                          : null}
+                      </div>
+                    ) : null}
                   </ComboboxPopup>
                 </Combobox>
+                <SidebarFilterMenu
+                  filters={sidebarThreadFilters}
+                  environments={environments.map((environment) => ({
+                    environmentId: environment.environmentId,
+                    label: environment.label,
+                  }))}
+                  projects={projectGroups.map((project) => ({
+                    id: project.projectKey,
+                    label: project.displayName,
+                    projectKeys: project.memberProjectRefs.map(
+                      (projectRef) => `${projectRef.environmentId}:${projectRef.projectId}`,
+                    ),
+                  }))}
+                  providerSources={sidebarProviderFilters.sources}
+                  archiveLoading={archiveLoading}
+                  archiveError={archiveError}
+                  onFiltersChange={handleSidebarThreadFiltersChange}
+                  showGroupByProject={false}
+                  triggerClassName="size-8 min-w-8 rounded-md"
+                />
                 <Tooltip>
                   <TooltipTrigger
                     render={
@@ -4633,7 +4969,7 @@ export default function Sidebar() {
                     {(() => {
                       const renderThreadRowInner = (
                         thread: EnvironmentThreadShell,
-                        section: SidebarSection,
+                        section: SidebarSection | "archived",
                         sortable?: SortableThreadRowBag,
                       ) => {
                         const threadKey = scopedThreadKey(
@@ -4656,11 +4992,14 @@ export default function Sidebar() {
                             variantAction={
                               section === "snoozed"
                                 ? "unsnooze"
-                                : section === "settled"
-                                  ? "unsettle"
-                                  : "settle"
+                                : section === "archived"
+                                  ? "unarchive"
+                                  : section === "settled"
+                                    ? "unsettle"
+                                    : "settle"
                             }
                             settlementSupported={
+                              section !== "archived" &&
                               serverConfigs.get(thread.environmentId)?.environment.capabilities
                                 .threadSettlement === true
                             }
@@ -4747,8 +5086,11 @@ export default function Sidebar() {
                             onUnsettle={attemptUnsettle}
                             onSnooze={attemptSnooze}
                             onUnsnooze={attemptUnsnooze}
+                            onUnarchive={attemptUnarchive}
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
+                            changeRequestSnapshot={changeRequestSnapshotByKey.get(threadKey) ?? null}
+                            onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
                           />
                         );
                       };
@@ -4887,6 +5229,25 @@ export default function Sidebar() {
                             break;
                         }
                       }
+                      if (archivedThreads.length > 0) {
+                        items.push(
+                          <li
+                            key="archived-shelf-header"
+                            data-thread-selection-safe
+                            className="list-none"
+                          >
+                            <div className="mb-1 mt-3 flex w-full items-center gap-2 px-2.5 text-left">
+                              <span className="text-xs font-medium text-muted-foreground/50">
+                                Archived ({archivedThreads.length})
+                              </span>
+                              <span className="h-px flex-1 bg-sidebar-border/60" />
+                            </div>
+                          </li>,
+                        );
+                        for (const thread of visibleArchivedThreads) {
+                          items.push(renderThreadRowInner(thread, "archived"));
+                        }
+                      }
                       return items;
                     })()}
                     {settledShelfExpanded && hiddenSettledCount > 0 ? (
@@ -4901,6 +5262,18 @@ export default function Sidebar() {
                         </button>
                       </li>
                     ) : null}
+                    {hiddenArchivedCount > 0 ? (
+                      <li className="list-none">
+                        <button
+                          type="button"
+                          onClick={showMoreArchived}
+                          className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground/55 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+                        >
+                          <PlusIcon aria-hidden className="size-4 shrink-0" />
+                          Show {Math.min(hiddenArchivedCount, SETTLED_TAIL_PAGE_COUNT)} more archived
+                        </button>
+                      </li>
+                    ) : null}
                   </ul>
                 </SortableContext>
               </DndContext>
@@ -4911,7 +5284,8 @@ export default function Sidebar() {
           pinnedThreads.length +
             activeThreads.length +
             snoozedThreads.length +
-            settledThreads.length ===
+            settledThreads.length +
+            archivedThreads.length ===
             0 ? (
             <div className="flex flex-col items-center gap-2 px-2 py-6 text-center text-xs text-muted-foreground/60">
               {projects.length === 0 ? (
@@ -4935,6 +5309,14 @@ export default function Sidebar() {
           ) : null}
         </SidebarGroup>
       </SidebarContent>
+      <ThreadLabelPickerDialog
+        open={threadLabelPickerTarget !== null}
+        threadKeys={threadLabelPickerTarget?.threadKeys ?? []}
+        targetLabel={threadLabelPickerTarget?.targetLabel ?? "this chat"}
+        onOpenChange={(open) => {
+          if (!open) setThreadLabelPickerTarget(null);
+        }}
+      />
       <SidebarChromeFooter />
     </>
   );

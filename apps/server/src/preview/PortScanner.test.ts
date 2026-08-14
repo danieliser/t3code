@@ -436,9 +436,10 @@ effectIt.effect("stops probing a subscriber's configured paths after its scope c
     yield* Scope.close(docsScope, Exit.void);
 
     requests.length = 0;
-    // The patched poller runs every 10s and keeps positive probes for 15s,
-    // so the first post-expiry network probe lands on the 20s tick.
-    yield* TestClock.adjust(Duration.seconds(21));
+    // The polling fiber may already be inside its 20-second idle interval
+    // when retain performs the immediate scan. Advance past that boundary;
+    // this test is about listener cleanup, not the active cadence.
+    yield* TestClock.adjust(Duration.seconds(25));
     expect(requests).toContain(adminUrl);
     expect(requests).not.toContain(docsUrl);
   }).pipe(Effect.scoped, Effect.provide(layer));
@@ -681,6 +682,8 @@ effectIt("does not rescan unchanged terminal registrations", () => {
         timedOut: false,
         stdoutTruncated: false,
         stderrTruncated: false,
+        stdoutInvalidUtf8: false,
+        stderrInvalidUtf8: false,
       };
     }),
   );
@@ -726,29 +729,29 @@ effectIt("serializes concurrent snapshot broadcasts", () =>
             timedOut: false,
             stdoutTruncated: false,
             stderrTruncated: false,
+            stdoutInvalidUtf8: false,
+            stderrInvalidUtf8: false,
           };
         }),
       (() =>
         Promise.resolve(
           new Response("app", { headers: { "content-type": "text/html" } }),
-        )) as typeof globalThis.fetch,
+        )) as unknown as typeof globalThis.fetch,
     );
 
     yield* Effect.gen(function* () {
       const scanner = yield* PortScanner.PortDiscovery;
-      yield* scanner.subscribe(
-        { configuredUrls: [], initialSnapshot: [] },
-        (servers) =>
-          Effect.gen(function* () {
-            deliveryCount += 1;
-            if (deliveryCount === 1) {
-              yield* Deferred.succeed(replayStarted, undefined).pipe(Effect.ignore);
-              yield* Deferred.await(releaseReplay);
-            } else {
-              yield* Deferred.succeed(secondDeliveryStarted, undefined).pipe(Effect.ignore);
-            }
-            deliveries.push(servers.map((server) => server.port));
-          }),
+      yield* scanner.subscribe({ configuredUrls: [], initialSnapshot: [] }, (servers) =>
+        Effect.gen(function* () {
+          deliveryCount += 1;
+          if (deliveryCount === 1) {
+            yield* Deferred.succeed(replayStarted, undefined).pipe(Effect.ignore);
+            yield* Deferred.await(releaseReplay);
+          } else {
+            yield* Deferred.succeed(secondDeliveryStarted, undefined).pipe(Effect.ignore);
+          }
+          deliveries.push(servers.map((server) => server.port));
+        }),
       );
       const retention = yield* scanner.retain.pipe(Effect.forkScoped);
       yield* Deferred.await(replayStarted);

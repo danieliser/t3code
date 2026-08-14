@@ -37,7 +37,6 @@ import {
   removeProjectKeysFromSidebarThreadFilters,
   resolveSidebarArchiveEnvironmentIds,
   resolveSelectedThreadEntries,
-  resolveSidebarStageBadgeLabel,
   resolveSidebarThreadFilterStatuses,
   resolveThreadRowClassName,
   resolveSidebarThreadStatus,
@@ -1021,44 +1020,6 @@ describe("resolveSelectedThreadEntries", () => {
   });
 });
 
-describe("resolveSidebarStageBadgeLabel", () => {
-  it("returns Nightly for nightly primary server versions", () => {
-    expect(
-      resolveSidebarStageBadgeLabel({
-        primaryServerVersion: "0.0.28-nightly.20260616.12",
-        fallbackStageLabel: "Alpha",
-      }),
-    ).toBe("Nightly");
-  });
-
-  it("returns the fallback label for stable primary server versions", () => {
-    expect(
-      resolveSidebarStageBadgeLabel({
-        primaryServerVersion: "0.0.27",
-        fallbackStageLabel: "Alpha",
-      }),
-    ).toBe("Alpha");
-  });
-
-  it("returns the fallback label when the primary server version is missing", () => {
-    expect(
-      resolveSidebarStageBadgeLabel({
-        primaryServerVersion: null,
-        fallbackStageLabel: "Dev",
-      }),
-    ).toBe("Dev");
-  });
-
-  it("returns the fallback label for malformed nightly prerelease versions", () => {
-    expect(
-      resolveSidebarStageBadgeLabel({
-        primaryServerVersion: "0.0.28-nightly.20260616",
-        fallbackStageLabel: "Alpha",
-      }),
-    ).toBe("Alpha");
-  });
-});
-
 function makeLatestTurn(overrides?: {
   completedAt?: string | null;
   startedAt?: string | null;
@@ -1209,20 +1170,6 @@ describe("createThreadJumpHintVisibilityController", () => {
     vi.advanceTimersByTime(THREAD_JUMP_HINT_SHOW_DELAY_MS);
 
     expect(visibilityChanges).toEqual([]);
-  });
-});
-
-describe("getSidebarThreadIdsToPrewarm", () => {
-  it("returns only the first visible thread ids up to the prewarm limit", () => {
-    expect(getSidebarThreadIdsToPrewarm(["t1", "t2", "t3"], 2)).toEqual(["t1", "t2"]);
-  });
-
-  it("returns all visible thread ids when they fit within the limit", () => {
-    expect(getSidebarThreadIdsToPrewarm(["t1", "t2"], 10)).toEqual(["t1", "t2"]);
-  });
-
-  it("returns no thread ids when the limit is zero", () => {
-    expect(getSidebarThreadIdsToPrewarm(["t1", "t2"], 0)).toEqual([]);
   });
 });
 

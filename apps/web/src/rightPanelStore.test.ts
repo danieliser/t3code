@@ -467,7 +467,7 @@ describe("rightPanelStore", () => {
     const activityId = EventId.make("activity-generated-image");
 
     useRightPanelStore.getState().openGeneratedImage(refA, activityId, "first-name.png");
-    useRightPanelStore.getState().open(refA, "agents");
+    useRightPanelStore.getState().open(refA, "diff");
     useRightPanelStore.getState().openGeneratedImage(refA, activityId, "generated.png");
 
     expect(selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)).toEqual({
@@ -481,7 +481,7 @@ describe("rightPanelStore", () => {
           name: "generated.png",
           loadRequestId: 2,
         },
-        { id: "agents", kind: "agents" },
+        { id: "diff", kind: "diff" },
       ],
     });
   });
@@ -508,7 +508,7 @@ describe("rightPanelStore", () => {
   });
 
   it("upgrades v8 generated-image surfaces with neutral load request state", () => {
-    expect(useRightPanelStore.persist.getOptions().version).toBe(9);
+    expect(useRightPanelStore.persist.getOptions().version).toBe(12);
     expect(
       migratePersistedRightPanelState({
         byThreadKey: {

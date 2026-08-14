@@ -126,6 +126,7 @@ import {
   getArm64IntelBuildWarningDescription,
   getDesktopUpdateActionError,
   getDesktopUpdateInstallConfirmationMessage,
+  getDesktopUpdateReleaseUrl,
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
@@ -2796,7 +2797,7 @@ function SortableProjectItem({
 interface SidebarProjectsContentProps {
   showArm64IntelBuildWarning: boolean;
   arm64IntelBuildWarningDescription: string | null;
-  desktopUpdateButtonAction: "download" | "install" | "none";
+  desktopUpdateButtonAction: "download" | "install" | "open-release" | "none";
   desktopUpdateButtonDisabled: boolean;
   desktopUpdateActionPending: boolean;
   handleDesktopUpdateButtonClick: () => void;
@@ -2939,7 +2940,9 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
                 >
                   {desktopUpdateButtonAction === "download"
                     ? "Download ARM build"
-                    : "Install ARM build"}
+                    : desktopUpdateButtonAction === "open-release"
+                      ? "Open ARM release"
+                      : "Install ARM build"}
                 </Button>
               </AlertAction>
             ) : null}
@@ -3596,6 +3599,13 @@ export default function LegacySidebar() {
     }
 
     setDesktopUpdateActionPending(true);
+
+    if (desktopUpdateButtonAction === "open-release") {
+      const releaseUrl = getDesktopUpdateReleaseUrl(desktopUpdateState.availableVersion);
+      if (releaseUrl) void bridge.openExternal(releaseUrl);
+      setDesktopUpdateActionPending(false);
+      return;
+    }
 
     if (desktopUpdateButtonAction === "download") {
       void bridge
