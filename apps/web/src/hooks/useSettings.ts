@@ -518,6 +518,25 @@ export function usePrimarySettingsAvailable(): boolean {
   return primaryEnvironment !== null || !isHostedStaticApp();
 }
 
+/** Environments that can receive a shared settings write right now. */
+function useSharedSettingsSyncTargetIds(): ReadonlyArray<EnvironmentId> {
+  const { environments } = useEnvironments();
+  return useMemo(
+    () =>
+      environments
+        .filter(supportsSharedSettingsSync)
+        .map((environment) => environment.environmentId),
+    [environments],
+  );
+}
+
+export function shouldWarnPrimarySettingsUnavailable(
+  environmentId: EnvironmentId | null,
+  localPatch: ServerSettingsPatch,
+): boolean {
+  return environmentId === null && Object.keys(localPatch).length > 0;
+}
+
 /**
  * Returns an updater that routes each key to the correct backing store.
  *
@@ -552,7 +571,7 @@ function useUpdateSettingsTarget(environmentId: EnvironmentId | null) {
               environmentId,
               input: { patch: localPatch },
             });
-          } else {
+          } else if (shouldWarnPrimarySettingsUnavailable(environmentId, localPatch)) {
             warnUnsaved();
           }
         }
