@@ -2,6 +2,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   type EditorId,
   type EnvironmentTheme,
+  type PersistFleetSnapshot,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerLifecycleWelcomePayload,
@@ -120,3 +121,10 @@ export const primaryServerObservabilityAtom = Atom.make(
   (get): ServerConfig["observability"] | null =>
     get(primaryServerConfigAtom)?.observability ?? null,
 ).pipe(Atom.withLabel("web-primary-server-observability"));
+
+export const primaryPersistFleetAtom = Atom.make((get): PersistFleetSnapshot | null => {
+  const environmentId = get(primaryEnvironmentIdAtom);
+  if (environmentId === null) return null;
+  const result = get(serverEnvironment.persistFleet({ environmentId, input: {} }));
+  return Option.getOrNull(AsyncResult.value(result));
+}).pipe(Atom.withLabel("web-primary-persist-fleet"));

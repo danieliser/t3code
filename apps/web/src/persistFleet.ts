@@ -11,6 +11,33 @@ export interface PersistFleetThreadGroup<TThread> {
   readonly children: readonly PersistFleetThreadMember<TThread>[];
 }
 
+export interface PersistFleetAgentGroup {
+  readonly agent: PersistFleetAgent;
+  readonly children: readonly PersistFleetAgent[];
+}
+
+export function groupPersistFleetAgents(
+  agents: readonly PersistFleetAgent[],
+): readonly PersistFleetAgentGroup[] {
+  const byId = new Map(agents.map((agent) => [agent.agentId, agent]));
+  const childrenByParent = new Map<string, PersistFleetAgent[]>();
+  const roots: PersistFleetAgent[] = [];
+  for (const agent of agents) {
+    const parent = agent.parentAgentId === null ? null : byId.get(agent.parentAgentId);
+    if (parent?.role !== "orchestrator") {
+      roots.push(agent);
+      continue;
+    }
+    const children = childrenByParent.get(parent.agentId) ?? [];
+    children.push(agent);
+    childrenByParent.set(parent.agentId, children);
+  }
+  return roots.map((agent) => ({
+    agent,
+    children: childrenByParent.get(agent.agentId) ?? [],
+  }));
+}
+
 /**
  * Groups routed thread rows using only explicit, typed PERSIST facts.
  *

@@ -122,11 +122,17 @@ import {
   useProjects,
   useThreadShells,
 } from "../state/entities";
-import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
+import {
+  environmentServerConfigsAtom,
+  primaryPersistFleetAtom,
+  primaryServerKeybindingsAtom,
+  serverEnvironment,
+} from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
 import { useEnvironmentQuery } from "../state/query";
-import { groupPersistFleetThreads } from "../persistFleet";
+import { groupPersistFleetAgents, groupPersistFleetThreads } from "../persistFleet";
+import { appAtomRegistry } from "../rpc/atomRegistry";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
   buildThreadRouteParams,
@@ -2190,6 +2196,13 @@ export default function Sidebar(props: SidebarProps = {}) {
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const persistFleetSnapshot = useAtomValue(primaryPersistFleetAtom);
+  const persistFleetAgents =
+    props.persistFleetAgents ?? persistFleetSnapshot?.agents ?? EMPTY_PERSIST_FLEET_AGENTS;
+  const unboundFleetGroups = useMemo(
+    () => groupPersistFleetAgents(persistFleetAgents.filter((agent) => agent.threadId === null)),
+    [persistFleetAgents],
+  );
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarHiddenProjectKeys = useClientSettings((s) => s.sidebarHiddenProjectKeys);
@@ -2282,6 +2295,15 @@ export default function Sidebar(props: SidebarProps = {}) {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
+  useEffect(() => {
+    if (props.persistFleetAgents !== undefined || primaryEnvironmentId === null) return;
+    const fleetAtom = serverEnvironment.persistFleet({
+      environmentId: primaryEnvironmentId,
+      input: {},
+    });
+    const interval = window.setInterval(() => appAtomRegistry.refresh(fleetAtom), 15_000);
+    return () => window.clearInterval(interval);
+  }, [primaryEnvironmentId, props.persistFleetAgents]);
   const archiveEnvironmentIds = useMemo(
     () =>
       resolveSidebarArchiveEnvironmentIds({
@@ -2802,12 +2824,8 @@ export default function Sidebar(props: SidebarProps = {}) {
     visibleProjectRefKeys,
   ]);
   const activeFleetThreadGroups = useMemo(
-    () =>
-      groupPersistFleetThreads(
-        activeThreads,
-        props.persistFleetAgents ?? EMPTY_PERSIST_FLEET_AGENTS,
-      ),
-    [activeThreads, props.persistFleetAgents],
+    () => groupPersistFleetThreads(activeThreads, persistFleetAgents),
+    [activeThreads, persistFleetAgents],
   );
   const fleetOrderedActiveThreads = useMemo(
     () =>

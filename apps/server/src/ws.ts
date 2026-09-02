@@ -125,6 +125,7 @@ import {
   retryGeneratedImageFileLookup,
 } from "./assets/GeneratedImageResolver.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
+import { readPersistFleet } from "./persist/PersistFleetClient.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
@@ -1796,6 +1797,10 @@ const makeWsRpcLayer = (
               "rpc.aggregate": "server",
             },
           ),
+        [WS_METHODS.serverGetPersistFleet]: (input) =>
+          observeRpcEffect(WS_METHODS.serverGetPersistFleet, readPersistFleet(input), {
+            "rpc.aggregate": "server",
+          }),
         [WS_METHODS.serverRefreshProviders]: (input) =>
           observeRpcEffect(
             WS_METHODS.serverRefreshProviders,

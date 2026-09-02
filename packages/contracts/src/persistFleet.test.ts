@@ -9,6 +9,7 @@ function validSnapshot() {
   return {
     contractVersion: PERSIST_FLEET_CONTRACT_VERSION,
     generatedAt: "2026-09-02T10:40:00.000Z",
+    unknownFields: { role: null, parentAgentId: null },
     agents: [
       {
         agentId: "persist-orchestrator",
@@ -29,6 +30,7 @@ function validSnapshot() {
         },
         session: {
           claimedItems: 3,
+          lapsedClaims: 0,
           completedItems: 2,
         },
         boards: [
@@ -68,6 +70,7 @@ describe("PersistFleetSnapshot", () => {
           },
           session: {
             claimedItems: null,
+            lapsedClaims: null,
             completedItems: null,
           },
         },

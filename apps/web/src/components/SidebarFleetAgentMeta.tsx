@@ -25,15 +25,10 @@ const WORK_STATE = {
     className: "text-red-700 dark:text-red-300",
   },
   unknown: {
-    label: "Unknown",
+    label: "Work unknown",
     className: "text-muted-foreground/70",
   },
 } as const;
-
-function totalAssignedItems(agent: PersistFleetAgent): number | null {
-  if (agent.boards.some((board) => board.assignedItems === null)) return null;
-  return agent.boards.reduce((total, board) => total + (board.assignedItems ?? 0), 0);
-}
 
 function FleetWorkState(props: { readonly agent: PersistFleetAgent }) {
   const workState = WORK_STATE[props.agent.work.state];
@@ -44,6 +39,25 @@ function FleetWorkState(props: { readonly agent: PersistFleetAgent }) {
     >
       <CircleDotIcon aria-hidden className="size-3" />
       {workState.label}
+    </span>
+  );
+}
+
+function FleetPresenceState(props: { readonly agent: PersistFleetAgent }) {
+  const label =
+    props.agent.mailbox.state === "never_seen"
+      ? "Never seen"
+      : props.agent.mailbox.state.charAt(0).toUpperCase() + props.agent.mailbox.state.slice(1);
+  return (
+    <span
+      className={cn(
+        "shrink-0",
+        props.agent.mailbox.state === "online"
+          ? "text-emerald-700 dark:text-emerald-300"
+          : "text-muted-foreground",
+      )}
+    >
+      {label}
     </span>
   );
 }
@@ -83,7 +97,8 @@ export function SidebarFleetAgentMeta(props: {
 }) {
   const roleLabel =
     props.agent.role === null ? "Unclassified agent" : ROLE_LABELS[props.agent.role];
-  const assignedItems = totalAssignedItems(props.agent);
+  const claimedItems = props.agent.session.claimedItems;
+  const lapsedClaims = props.agent.session.lapsedClaims;
   const completedItems = props.agent.session.completedItems;
 
   if (props.variant === "compact") {
@@ -94,6 +109,10 @@ export function SidebarFleetAgentMeta(props: {
         aria-label={`${props.agent.displayName}, ${roleLabel}`}
       >
         <span className="hidden max-w-24 truncate min-[280px]:inline">{roleLabel}</span>
+        <BoardLinks agent={props.agent} />
+        <FleetPresenceState agent={props.agent} />
+        {claimedItems !== null ? <span>{claimedItems} claimed</span> : null}
+        {completedItems !== null ? <span>{completedItems} done</span> : null}
         <FleetWorkState agent={props.agent} />
       </span>
     );
@@ -115,7 +134,11 @@ export function SidebarFleetAgentMeta(props: {
       <span className="min-w-0 flex-1 truncate">
         <BoardLinks agent={props.agent} />
       </span>
-      {assignedItems !== null ? <span className="shrink-0">{assignedItems} assigned</span> : null}
+      <FleetPresenceState agent={props.agent} />
+      {claimedItems !== null ? <span className="shrink-0">{claimedItems} claimed</span> : null}
+      {lapsedClaims !== null && lapsedClaims > 0 ? (
+        <span className="shrink-0">{lapsedClaims} lapsed</span>
+      ) : null}
       {completedItems !== null ? <span className="shrink-0">{completedItems} done</span> : null}
       <FleetWorkState agent={props.agent} />
     </span>

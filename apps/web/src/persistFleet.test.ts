@@ -1,7 +1,7 @@
 import { ThreadId, type PersistFleetAgent } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { groupPersistFleetThreads } from "./persistFleet";
+import { groupPersistFleetAgents, groupPersistFleetThreads } from "./persistFleet";
 
 type TestThread = {
   readonly id: string;
@@ -29,10 +29,29 @@ const agent = (overrides: Partial<PersistFleetAgent>): PersistFleetAgent => ({
   },
   session: {
     claimedItems: null,
+    lapsedClaims: null,
     completedItems: null,
   },
   boards: [],
   ...overrides,
+});
+
+describe("groupPersistFleetAgents", () => {
+  it("nests only explicitly parented agents under an explicitly typed orchestrator", () => {
+    const groups = groupPersistFleetAgents([
+      agent({ agentId: "parent", role: "orchestrator" }),
+      agent({ agentId: "child", role: "team_member", parentAgentId: "parent" }),
+      agent({ agentId: "unknown-parent", role: null }),
+      agent({ agentId: "not-a-child", parentAgentId: "unknown-parent" }),
+    ]);
+    expect(
+      groups.map((group) => [group.agent.agentId, group.children.map((child) => child.agentId)]),
+    ).toEqual([
+      ["parent", ["child"]],
+      ["unknown-parent", []],
+      ["not-a-child", []],
+    ]);
+  });
 });
 
 describe("groupPersistFleetThreads", () => {

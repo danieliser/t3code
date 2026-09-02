@@ -53,6 +53,7 @@ export type PersistFleetWork = typeof PersistFleetWork.Type;
 export const PersistFleetSessionStats = Schema.Struct({
   /** Claim-event count, not the expiring current board assignee column. */
   claimedItems: Schema.NullOr(NonNegativeInt),
+  lapsedClaims: Schema.NullOr(NonNegativeInt),
   completedItems: Schema.NullOr(NonNegativeInt),
 });
 export type PersistFleetSessionStats = typeof PersistFleetSessionStats.Type;
@@ -86,6 +87,47 @@ export type PersistFleetAgent = typeof PersistFleetAgent.Type;
 export const PersistFleetSnapshot = Schema.Struct({
   contractVersion: Schema.Literal(PERSIST_FLEET_CONTRACT_VERSION),
   generatedAt: IsoDateTime,
+  unknownFields: Schema.Struct({
+    role: Schema.NullOr(TrimmedNonEmptyString),
+    parentAgentId: Schema.NullOr(TrimmedNonEmptyString),
+  }),
   agents: Schema.Array(PersistFleetAgent),
 });
 export type PersistFleetSnapshot = typeof PersistFleetSnapshot.Type;
+
+/** Wire response owned by PERSIST's read-only `fleet.list` ability. */
+export const PersistFleetApiResponse = Schema.Struct({
+  count: NonNegativeInt,
+  agents: Schema.Array(
+    Schema.Struct({
+      agent_id: TrimmedNonEmptyString,
+      presence: Schema.Struct({
+        state: PersistFleetMailboxState,
+        last_read_at: Schema.NullOr(IsoDateTime),
+      }),
+      work: Schema.Struct({
+        tasks_running: NonNegativeInt,
+        tasks_pending: NonNegativeInt,
+        is_busy: Schema.Boolean,
+      }),
+      boards: Schema.Struct({
+        slugs: Schema.Array(TrimmedNonEmptyString),
+        claims: NonNegativeInt,
+        claims_lapsed: NonNegativeInt,
+        items_completed: NonNegativeInt,
+      }),
+      role: Schema.NullOr(PersistFleetRole),
+      parent_agent_id: Schema.NullOr(TrimmedNonEmptyString),
+    }),
+  ),
+  unknown_fields: Schema.Struct({
+    role: Schema.NullOr(TrimmedNonEmptyString),
+    parent_agent_id: Schema.NullOr(TrimmedNonEmptyString),
+  }),
+});
+export type PersistFleetApiResponse = typeof PersistFleetApiResponse.Type;
+
+export class PersistFleetUnavailableError extends Schema.TaggedErrorClass<PersistFleetUnavailableError>()(
+  "PersistFleetUnavailableError",
+  { message: TrimmedNonEmptyString },
+) {}

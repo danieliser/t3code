@@ -23,6 +23,7 @@ const agent = (overrides: Partial<PersistFleetAgent> = {}): PersistFleetAgent =>
   },
   session: {
     claimedItems: 4,
+    lapsedClaims: 0,
     completedItems: 3,
   },
   boards: [
@@ -47,7 +48,9 @@ describe("SidebarFleetAgentMeta", () => {
     expect(markup).toContain("PERSIST Orchestrator");
     expect(markup).toContain("Orchestrator");
     expect(markup).toContain("Running");
+    expect(markup).toContain("Online");
     expect(markup).toContain("2 agents");
+    expect(markup).toContain("4 claimed");
     expect(markup).toContain("3 done");
     expect(markup).toContain('href="http://127.0.0.1:8803/boards/persistence"');
     expect(markup).toContain("PERSIST");
@@ -64,7 +67,7 @@ describe("SidebarFleetAgentMeta", () => {
             waitingTasks: null,
             blockedTasks: null,
           },
-          session: { claimedItems: null, completedItems: null },
+          session: { claimedItems: null, lapsedClaims: null, completedItems: null },
           boards: [],
         })}
         variant="compact"
@@ -72,7 +75,7 @@ describe("SidebarFleetAgentMeta", () => {
     );
 
     expect(markup).toContain("Team agent");
-    expect(markup).toContain("Unknown");
+    expect(markup).toContain("Work unknown");
     expect(markup).not.toContain("Waiting");
     expect(markup).not.toContain("Blocked");
   });

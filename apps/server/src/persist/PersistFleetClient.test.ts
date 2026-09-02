@@ -1,0 +1,102 @@
+import type { PersistFleetApiResponse } from "@t3tools/contracts";
+import { it as effectIt } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { projectPersistFleetSnapshot, readPersistFleet } from "./PersistFleetClient.ts";
+
+const response = (overrides: Partial<PersistFleetApiResponse> = {}): PersistFleetApiResponse => ({
+  count: 1,
+  agents: [
+    {
+      agent_id: "t3-developer",
+      presence: { state: "online", last_read_at: "2026-09-02T23:04:31.000Z" },
+      work: { tasks_running: 0, tasks_pending: 2, is_busy: false },
+      boards: { slugs: ["popup-maker-growth"], claims: 19, claims_lapsed: 7, items_completed: 8 },
+      role: null,
+      parent_agent_id: null,
+    },
+  ],
+  unknown_fields: {
+    role: "not recorded",
+    parent_agent_id: "not recorded",
+  },
+  ...overrides,
+});
+
+describe("projectPersistFleetSnapshot", () => {
+  it("preserves unknown identity fields and maps event totals without inference", () => {
+    const snapshot = projectPersistFleetSnapshot(response(), {
+      generatedAt: "2026-09-02T23:05:00.000Z",
+      webUrl: "http://127.0.0.1:5173/",
+    });
+
+    expect(snapshot.unknownFields).toEqual({ role: "not recorded", parentAgentId: "not recorded" });
+    expect(snapshot.agents[0]).toMatchObject({
+      agentId: "t3-developer",
+      displayName: "t3-developer",
+      role: null,
+      parentAgentId: null,
+      threadId: null,
+      work: { state: "idle_waiting", activeTasks: 0, waitingTasks: 2, blockedTasks: null },
+      session: { claimedItems: 19, lapsedClaims: 7, completedItems: 8 },
+      boards: [
+        {
+          boardId: "popup-maker-growth",
+          title: "Popup Maker Growth",
+          assignedItems: null,
+          completedItems: null,
+          url: "http://127.0.0.1:5173/boards/popup-maker-growth",
+        },
+      ],
+    });
+  });
+
+  it("reports running work but leaves no-work agents unknown", () => {
+    const running = response({
+      agents: [
+        {
+          ...response().agents[0]!,
+          work: { tasks_running: 1, tasks_pending: 0, is_busy: true },
+        },
+        {
+          ...response().agents[0]!,
+          agent_id: "quiet-agent",
+          work: { tasks_running: 0, tasks_pending: 0, is_busy: false },
+        },
+      ],
+      count: 2,
+    });
+    const snapshot = projectPersistFleetSnapshot(running, {
+      generatedAt: "2026-09-02T23:05:00.000Z",
+    });
+    expect(snapshot.agents.map((agent) => agent.work.state)).toEqual(["active", "unknown"]);
+  });
+});
+
+effectIt.effect("reads the authenticated live fleet without returning the bearer token", () =>
+  Effect.gen(function* () {
+    vi.stubEnv("PERSIST_AUTH_TOKEN", "test-owner-token");
+    vi.stubEnv("PERSIST_URL", "http://persist.test:8803");
+    let authorization: string | undefined;
+    const httpLayer = Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) => {
+        authorization = request.headers.authorization;
+        return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(response())));
+      }),
+    );
+
+    const snapshot = yield* readPersistFleet({}).pipe(
+      Effect.provide(Layer.merge(httpLayer, FileSystem.layerNoop({}))),
+      Effect.ensuring(Effect.sync(() => vi.unstubAllEnvs())),
+    );
+
+    expect(authorization).toBe("Bearer test-owner-token");
+    expect(snapshot.agents[0]?.agentId).toBe("t3-developer");
+    expect(snapshot).not.toHaveProperty("token");
+  }),
+);
