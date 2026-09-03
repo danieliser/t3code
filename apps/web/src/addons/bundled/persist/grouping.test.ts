@@ -4,6 +4,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   groupPersistFleetAgents,
   groupPersistFleetThreads,
+  persistThreadContributionId,
   persistThreadContributionKind,
 } from "./grouping";
 
@@ -173,5 +174,16 @@ describe("persistThreadContributionKind", () => {
         childCount: 0,
       }),
     ).toBe("child");
+  });
+});
+
+describe("persistThreadContributionId", () => {
+  it("distinguishes multiple PERSIST identities routed to the same thread", () => {
+    expect(persistThreadContributionId("mailbox-before-handoff")).not.toBe(
+      persistThreadContributionId("mailbox-after-handoff"),
+    );
+    expect(persistThreadContributionId("mailbox-after-handoff")).toBe(
+      "fleet-status:mailbox-after-handoff",
+    );
   });
 });

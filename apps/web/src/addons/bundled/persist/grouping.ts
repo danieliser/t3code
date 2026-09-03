@@ -16,6 +16,15 @@ export interface PersistFleetAgentGroup {
   readonly children: readonly PersistFleetAgent[];
 }
 
+/**
+ * One T3 thread can legitimately route more than one PERSIST identity (for
+ * example, when a mailbox role is renamed or handed over). Keep each row
+ * contribution stable and distinct without treating the thread as the agent.
+ */
+export function persistThreadContributionId(agentId: string): string {
+  return `fleet-status:${agentId}`;
+}
+
 export function persistThreadContributionKind(input: {
   readonly agent: PersistFleetAgent;
   readonly hasParentThread: boolean;

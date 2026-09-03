@@ -8,7 +8,7 @@ import { primaryPersistFleetAtom } from "../../../state/server";
 import { usePrimaryEnvironmentId } from "../../../state/environments";
 import { SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
 import { usePersistBindingsStore } from "./bindingsStore";
-import { persistThreadContributionKind } from "./grouping";
+import { persistThreadContributionId, persistThreadContributionKind } from "./grouping";
 import { mergePersistBindings } from "./mergeFleet";
 
 function usePersistThreadContributions(
@@ -55,7 +55,7 @@ function usePersistThreadContributions(
       });
       return [
         {
-          contributionId: "fleet-status",
+          contributionId: persistThreadContributionId(agent.agentId),
           threadRef: scopeThreadRef(primaryEnvironmentId, agent.threadId),
           parentThreadRef:
             parentThreadId === null ? null : scopeThreadRef(primaryEnvironmentId, parentThreadId),
