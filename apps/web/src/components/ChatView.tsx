@@ -264,6 +264,7 @@ import {
   beginBackgroundDraftSubmissionByRef,
   clearBackgroundDraftSubmissionByRef,
   composerDraftHasUserContent,
+  composerTargetKey,
   type ComposerFileAttachment,
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -272,6 +273,7 @@ import {
   useComposerDraftStore,
   type DraftId,
 } from "../composerDraftStore";
+import { commitComposerAddonSubmissionPayloads } from "../addons";
 import { useUiStateStore } from "../uiStateStore";
 import {
   appendTerminalContextsToPrompt,
@@ -1475,10 +1477,7 @@ export default function ChatView(props: ChatViewProps) {
     routeKind === "server" ? routeThreadRef.environmentId : null,
     routeKind === "server" ? routeThreadRef.threadId : null,
   );
-  useMarkActiveThreadVisited(
-    routeThreadKey,
-    activeServerThread?.latestTurn?.completedAt ?? null,
-  );
+  useMarkActiveThreadVisited(routeThreadKey, activeServerThread?.latestTurn?.completedAt ?? null);
   useEffect(
     () => () => {
       const currentRouteParams =
@@ -6351,6 +6350,7 @@ export default function ChatView(props: ChatViewProps) {
       selectedModelSelection: ctxSelectedModelSelection,
       interactionMode: sendInteractionMode,
       interactionModeEnabled: sendInteractionModeEnabled,
+      addonPayloads,
     } = sendCtx;
     const annotationImageAlreadyAttached =
       directAnnotation?.image !== undefined &&
@@ -6898,6 +6898,13 @@ export default function ChatView(props: ChatViewProps) {
         // snapshot is stale. Uploads may have outlasted a navigation, so only
         // the sending thread's panel clears.
         clearUsageLimitsFor(routeThreadKey);
+        if (isLocalDraftThread && Object.keys(addonPayloads).length > 0) {
+          commitComposerAddonSubmissionPayloads({
+            targetKey: composerTargetKey(composerDraftTarget),
+            threadId: threadIdForSend,
+            payloads: addonPayloads,
+          });
+        }
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }

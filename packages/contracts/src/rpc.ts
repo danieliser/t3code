@@ -382,6 +382,7 @@ export const WS_METHODS = {
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeBackgroundPolicy: "subscribeBackgroundPolicy",
   subscribeResourceTelemetry: "subscribeResourceTelemetry",
+  subscribePersistFleet: "subscribePersistFleet",
 } as const;
 
 const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -412,6 +413,13 @@ export const WsServerGetPersistFleetRpc = Rpc.make(WS_METHODS.serverGetPersistFl
   payload: Schema.Struct({ includeOffline: Schema.optional(Schema.Boolean) }),
   success: PersistFleetSnapshot,
   error: Schema.Union([PersistFleetUnavailableError, EnvironmentAuthorizationError]),
+});
+
+export const WsSubscribePersistFleetRpc = Rpc.make(WS_METHODS.subscribePersistFleet, {
+  payload: Schema.Struct({ includeOffline: Schema.optional(Schema.Boolean) }),
+  success: PersistFleetSnapshot,
+  error: Schema.Union([PersistFleetUnavailableError, EnvironmentAuthorizationError]),
+  stream: true,
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -1201,6 +1209,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerGetPersistFleetRpc,
+  WsSubscribePersistFleetRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,

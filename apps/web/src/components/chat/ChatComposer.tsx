@@ -826,6 +826,13 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { serverEnvironment } from "../../state/server";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
+import {
+  ComposerAddonSlot,
+  composerAddonBlockingIssue,
+  readComposerAddonSubmissionPayloads,
+  useComposerAddonContributions,
+  type ComposerAddonContext,
+} from "../../addons";
 
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
 
@@ -1157,6 +1164,7 @@ export interface ChatComposerHandle {
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
     interactionMode: ProviderInteractionMode;
     interactionModeEnabled: boolean;
+    addonPayloads: Readonly<Record<string, unknown>>;
   };
   /** Validate the fully composed text immediately before a provider turn starts. */
   validateProviderInput: (providerInput: string) => boolean;
@@ -1408,6 +1416,17 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // Store subscriptions (prompt / images / terminal contexts)
   // ------------------------------------------------------------------
   const composerDraft = useComposerThreadDraft(composerDraftTarget);
+  const composerAddonContext = useMemo<ComposerAddonContext>(
+    () => ({
+      targetKey: composerTargetKey(composerDraftTarget),
+      environmentId,
+      routeKind: routeKind === "draft" ? "draft" : "thread",
+      disabled: isConnecting || projectSelectionRequired,
+    }),
+    [composerDraftTarget, environmentId, isConnecting, projectSelectionRequired, routeKind],
+  );
+  const composerAddonContributions = useComposerAddonContributions(composerAddonContext);
+  const composerAddonIssue = composerAddonBlockingIssue(composerAddonContributions);
   // Live target key, for async flows that must notice a thread switch that
   // happened while they awaited.
   const composerDraftTargetKeyRef = useRef("");
@@ -1644,7 +1663,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   );
   const sendDisabledReason =
     externalSendDisabledReason ??
-    (activePendingProgress ? null : (attachmentBlockReason ?? providerSendBlockReason));
+    (activePendingProgress
+      ? null
+      : (attachmentBlockReason ?? providerSendBlockReason ?? composerAddonIssue));
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = useMemo(
     () => selectedProviderEntry?.snapshot ?? null,
@@ -4015,6 +4036,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onOpenProviderSetup={onOpenProviderSetup}
       />
 
+      {composerAddonContributions.length > 0 ? (
+        <>
+          <ComposerControlSeparator size={composerControlsInStrip ? "xs" : "sm"} />
+          <ComposerAddonSlot contributions={composerAddonContributions} />
+        </>
+      ) : null}
+
       {composerControlsCompact ? (
         <CompactComposerControlsMenu
           interactionMode={interactionMode}
@@ -4642,6 +4670,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedProviderModels,
         interactionMode,
         interactionModeEnabled: planModeUiEnabled,
+        addonPayloads: readComposerAddonSubmissionPayloads(composerTargetKey(composerDraftTarget)),
       }),
       validateProviderInput: (providerInput: string) => {
         const validationMessage = getComposerSubmissionValidationMessage({

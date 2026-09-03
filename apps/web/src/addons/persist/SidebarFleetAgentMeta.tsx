@@ -1,7 +1,7 @@
 import type { PersistFleetAgent, PersistFleetRole } from "@t3tools/contracts";
-import { CircleDotIcon } from "lucide-react";
+import { CircleDotIcon, NetworkIcon } from "lucide-react";
 
-import { cn } from "../lib/utils";
+import { cn } from "../../lib/utils";
 
 const ROLE_LABELS: Readonly<Record<PersistFleetRole, string>> = {
   commander: "Commander",
@@ -108,6 +108,7 @@ export function SidebarFleetAgentMeta(props: {
         className="inline-flex shrink-0 items-center gap-1.5 text-[11px] text-muted-foreground"
         aria-label={`${props.agent.displayName}, ${roleLabel}`}
       >
+        <NetworkIcon aria-hidden className="size-3 text-fuchsia-500" />
         <span className="hidden max-w-24 truncate min-[280px]:inline">{roleLabel}</span>
         <BoardLinks agent={props.agent} />
         <FleetPresenceState agent={props.agent} />
@@ -123,6 +124,10 @@ export function SidebarFleetAgentMeta(props: {
       data-testid="sidebar-fleet-agent-meta-card"
       className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-secondary-label"
     >
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-fuchsia-500/12 px-1.5 py-0.5 font-semibold text-[10px] text-fuchsia-700 uppercase tracking-wide dark:text-fuchsia-300">
+        <NetworkIcon aria-hidden className="size-2.5" />
+        PERSIST
+      </span>
       <span className="min-w-0 truncate font-medium text-foreground/80">
         {props.agent.displayName}
       </span>

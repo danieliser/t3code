@@ -1,4 +1,4 @@
-import type { PersistFleetApiResponse } from "@t3tools/contracts";
+import { ThreadId, type PersistFleetApiResponse } from "@t3tools/contracts";
 import { it as effectIt } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
@@ -6,7 +6,11 @@ import * as Layer from "effect/Layer";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { describe, expect, it, vi } from "vite-plus/test";
 
-import { projectPersistFleetSnapshot, readPersistFleet } from "./PersistFleetClient.ts";
+import {
+  attachPersistThreadRoutes,
+  projectPersistFleetSnapshot,
+  readPersistFleet,
+} from "./PersistFleetClient.ts";
 
 const response = (overrides: Partial<PersistFleetApiResponse> = {}): PersistFleetApiResponse => ({
   count: 1,
@@ -74,6 +78,20 @@ describe("projectPersistFleetSnapshot", () => {
       generatedAt: "2026-09-02T23:05:00.000Z",
     });
     expect(snapshot.agents.map((agent) => agent.work.state)).toEqual(["active", "unknown"]);
+  });
+});
+
+describe("attachPersistThreadRoutes", () => {
+  it("binds only explicitly discovered live routes", () => {
+    const snapshot = projectPersistFleetSnapshot(response(), {
+      generatedAt: "2026-09-03T00:00:00.000Z",
+    });
+    const routed = attachPersistThreadRoutes(
+      snapshot,
+      new Map([["t3-developer", ThreadId.make("thread-live")]]),
+    );
+
+    expect(routed.agents[0]?.threadId).toBe("thread-live");
   });
 });
 

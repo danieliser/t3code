@@ -4,6 +4,7 @@ import {
   type PersistFleetApiResponse as PersistFleetApiResponseValue,
   type PersistFleetSnapshot,
   PersistFleetUnavailableError,
+  type ThreadId,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -24,7 +25,11 @@ function boardTitle(slug: string): string {
 
 export function projectPersistFleetSnapshot(
   response: PersistFleetApiResponseValue,
-  options: { readonly generatedAt: string; readonly webUrl?: string | undefined },
+  options: {
+    readonly generatedAt: string;
+    readonly webUrl?: string | undefined;
+    readonly threadIdByAgentId?: ReadonlyMap<string, ThreadId> | undefined;
+  },
 ): PersistFleetSnapshot {
   const webUrl = (options.webUrl ?? DEFAULT_WEB_URL).replace(/\/$/, "");
   return {
@@ -39,9 +44,9 @@ export function projectPersistFleetSnapshot(
       displayName: agent.agent_id,
       role: agent.role,
       parentAgentId: agent.parent_agent_id,
-      // PERSIST intentionally resolves routes live. The current fleet response
-      // does not expose that projection, so T3 preserves an unbound route.
-      threadId: null,
+      // Routes are resolved from T3's live activity projection, never stored as
+      // a second durable source of truth.
+      threadId: options.threadIdByAgentId?.get(agent.agent_id) ?? null,
       mailbox: {
         state: agent.presence.state,
         lastReadAt: agent.presence.last_read_at,
@@ -77,7 +82,20 @@ export function projectPersistFleetSnapshot(
   };
 }
 
-const resolveToken = Effect.gen(function* () {
+export function attachPersistThreadRoutes(
+  snapshot: PersistFleetSnapshot,
+  threadIdByAgentId: ReadonlyMap<string, ThreadId>,
+): PersistFleetSnapshot {
+  return {
+    ...snapshot,
+    agents: snapshot.agents.map((agent) => ({
+      ...agent,
+      threadId: threadIdByAgentId.get(agent.agentId) ?? null,
+    })),
+  };
+}
+
+export const resolvePersistToken = Effect.gen(function* () {
   const fromEnvironment = process.env.PERSIST_AUTH_TOKEN?.trim();
   if (fromEnvironment) return fromEnvironment;
   const tokenFile =
@@ -92,7 +110,7 @@ const resolveToken = Effect.gen(function* () {
 
 export function readPersistFleet(input: { readonly includeOffline?: boolean | undefined }) {
   return Effect.gen(function* () {
-    const token = yield* resolveToken;
+    const token = yield* resolvePersistToken;
     if (token === null) {
       return yield* new PersistFleetUnavailableError({
         message: "PERSIST authentication is unavailable.",

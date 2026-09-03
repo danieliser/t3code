@@ -1,7 +1,7 @@
 import { ThreadId, type PersistFleetAgent } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { groupPersistFleetAgents, groupPersistFleetThreads } from "./persistFleet";
+import { groupPersistFleetAgents, groupPersistFleetThreads } from "./grouping";
 
 type TestThread = {
   readonly id: string;

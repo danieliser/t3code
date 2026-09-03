@@ -125,7 +125,8 @@ import {
   retryGeneratedImageFileLookup,
 } from "./assets/GeneratedImageResolver.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
-import { readPersistFleet } from "./persist/PersistFleetClient.ts";
+import { persistFleetInvalidations } from "./addons/persist/PersistFleetEvents.ts";
+import { makePersistFleetSnapshotReader } from "./addons/persist/PersistFleetProjection.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration/workflowScriptQuery.ts";
@@ -486,6 +487,7 @@ const makeWsRpcLayer = (
       const currentSessionId = currentSession.sessionId;
       const crypto = yield* Crypto.Crypto;
       const projectionSnapshotQuery = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+      const readPersistFleetSnapshot = makePersistFleetSnapshotReader(projectionSnapshotQuery);
       const orchestrationEngine = yield* OrchestrationEngine.OrchestrationEngineService;
       const threadDeletionReactor = yield* ThreadDeletionReactor;
       const analytics = yield* AnalyticsService.AnalyticsService;
@@ -1798,7 +1800,7 @@ const makeWsRpcLayer = (
             },
           ),
         [WS_METHODS.serverGetPersistFleet]: (input) =>
-          observeRpcEffect(WS_METHODS.serverGetPersistFleet, readPersistFleet(input), {
+          observeRpcEffect(WS_METHODS.serverGetPersistFleet, readPersistFleetSnapshot(input), {
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverRefreshProviders]: (input) =>
@@ -2953,6 +2955,17 @@ const makeWsRpcLayer = (
             Stream.unwrap(
               Effect.map(resourceTelemetry.subscribe, ({ latest, changes }) =>
                 Stream.concat(Stream.make(latest), changes),
+              ),
+            ),
+            { "rpc.aggregate": "server" },
+          ),
+        [WS_METHODS.subscribePersistFleet]: (input) =>
+          observeRpcStream(
+            WS_METHODS.subscribePersistFleet,
+            Stream.concat(
+              Stream.fromEffect(readPersistFleetSnapshot(input)),
+              persistFleetInvalidations.pipe(
+                Stream.mapEffect(() => readPersistFleetSnapshot(input)),
               ),
             ),
             { "rpc.aggregate": "server" },

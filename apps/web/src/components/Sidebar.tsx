@@ -29,7 +29,6 @@ import {
   resolveEnvironmentMachineKind,
   type EnvironmentMachineKind,
   type ProjectIconOverride,
-  type PersistFleetAgent,
   type ScopedThreadRef,
   type ThreadId,
 } from "@t3tools/contracts";
@@ -59,6 +58,7 @@ import {
   XIcon,
 } from "lucide-react";
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
@@ -122,17 +122,15 @@ import {
   useProjects,
   useThreadShells,
 } from "../state/entities";
-import {
-  environmentServerConfigsAtom,
-  primaryPersistFleetAtom,
-  primaryServerKeybindingsAtom,
-  serverEnvironment,
-} from "../state/server";
+import { environmentServerConfigsAtom, primaryServerKeybindingsAtom } from "../state/server";
 import { vcsEnvironment } from "../state/vcs";
 import { threadEnvironment } from "../state/threads";
 import { useEnvironmentQuery } from "../state/query";
-import { groupPersistFleetAgents, groupPersistFleetThreads } from "../persistFleet";
-import { appAtomRegistry } from "../rpc/atomRegistry";
+import {
+  groupThreadsWithAddonContributions,
+  useSidebarAddonThreadContributions,
+  type SidebarThreadAddonContribution,
+} from "../addons";
 import { useAtomCommand } from "../state/use-atom-command";
 import {
   buildThreadRouteParams,
@@ -210,7 +208,6 @@ import {
   type SnoozePreset,
 } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
-import { SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import {
@@ -1062,9 +1059,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   changeRequestSnapshot: ThreadChangeRequestSnapshot | null;
-  fleetAgent: PersistFleetAgent | null;
-  fleetPlacement: "parent" | "child" | "standalone" | null;
-  fleetChildCount: number;
+  addonContribution: SidebarThreadAddonContribution | null;
   onChangeRequestSnapshot: (
     threadKey: string,
     snapshot: ThreadChangeRequestSnapshot | null,
@@ -1616,11 +1611,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       <li
         data-thread-item
         {...sortableRootProps}
-        data-fleet-child={props.fleetPlacement === "child" || undefined}
+        data-addon-child={props.addonContribution?.kind === "child" || undefined}
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]",
           sortable?.isDragging && "relative z-20",
-          props.fleetPlacement === "child" &&
+          props.addonContribution?.kind === "child" &&
             "relative ml-4 border-l border-sidebar-border/70 pl-1 before:absolute before:left-0 before:top-1/2 before:w-1.5 before:border-t before:border-sidebar-border/70",
         )}
       >
@@ -1661,9 +1656,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             </span>
             {draftIndicator}
             {title}
-            {props.fleetAgent !== null ? (
-              <SidebarFleetAgentMeta agent={props.fleetAgent} variant="compact" />
-            ) : null}
+            {props.addonContribution?.compact}
             {pinIndicator}
             <ThreadLabelBadgesForThread threadKey={threadKey} compact maxVisible={1} />
             {terminalStatusIcon}
@@ -1803,8 +1796,15 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               role="button"
               tabIndex={0}
               data-testid="sidebar-row-card"
+              data-addon-id={props.addonContribution?.addonId}
+              data-addon-parent={props.addonContribution?.kind === "parent" || undefined}
               aria-busy={isRegeneratingTitle || undefined}
-              className={rowSurfaceClassName}
+              className={cn(
+                rowSurfaceClassName,
+                props.addonContribution?.kind === "standalone" && "ring-1 ring-fuchsia-500/30",
+                props.addonContribution?.kind === "parent" &&
+                  "ring-1 ring-emerald-500/45 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-emerald-500)_18%,transparent)]",
+              )}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}
@@ -1982,12 +1982,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               {/* Always the branch. The plan step used to take this slot while
                   working, but it truncated to a half-sentence and dropped the
                   branch, so the row lost its most stable identifier. */}
-              {props.fleetAgent !== null ? (
-                <SidebarFleetAgentMeta
-                  agent={props.fleetAgent}
-                  variant="card"
-                  childCount={props.fleetChildCount}
-                />
+              {props.addonContribution !== null ? (
+                props.addonContribution.card
               ) : thread.branch ? (
                 <>
                   <ThreadWorktreeIndicator thread={thread} />
@@ -2179,30 +2175,13 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
   );
 });
 
-const EMPTY_PERSIST_FLEET_AGENTS: readonly PersistFleetAgent[] = [];
-
-export interface SidebarProps {
-  /**
-   * Versioned PERSIST projection supplied by the environment data source.
-   * Empty while PERSIST is unavailable or before its fleet read API exists.
-   */
-  readonly persistFleetAgents?: readonly PersistFleetAgent[];
-}
-
-export default function Sidebar(props: SidebarProps = {}) {
+export default function Sidebar() {
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const persistFleetSnapshot = useAtomValue(primaryPersistFleetAtom);
-  const persistFleetAgents =
-    props.persistFleetAgents ?? persistFleetSnapshot?.agents ?? EMPTY_PERSIST_FLEET_AGENTS;
-  const unboundFleetGroups = useMemo(
-    () => groupPersistFleetAgents(persistFleetAgents.filter((agent) => agent.threadId === null)),
-    [persistFleetAgents],
-  );
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const sidebarHiddenProjectKeys = useClientSettings((s) => s.sidebarHiddenProjectKeys);
@@ -2295,15 +2274,6 @@ export default function Sidebar(props: SidebarProps = {}) {
   );
   const { environments } = useEnvironments();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  useEffect(() => {
-    if (props.persistFleetAgents !== undefined || primaryEnvironmentId === null) return;
-    const fleetAtom = serverEnvironment.persistFleet({
-      environmentId: primaryEnvironmentId,
-      input: {},
-    });
-    const interval = window.setInterval(() => appAtomRegistry.refresh(fleetAtom), 15_000);
-    return () => window.clearInterval(interval);
-  }, [primaryEnvironmentId, props.persistFleetAgents]);
   const archiveEnvironmentIds = useMemo(
     () =>
       resolveSidebarArchiveEnvironmentIds({
@@ -2823,47 +2793,38 @@ export default function Sidebar(props: SidebarProps = {}) {
     threads,
     visibleProjectRefKeys,
   ]);
-  const activeFleetThreadGroups = useMemo(
-    () => groupPersistFleetThreads(activeThreads, persistFleetAgents),
-    [activeThreads, persistFleetAgents],
+  const addonEligibleThreads = useMemo(
+    () => [...pinnedThreads, ...activeThreads],
+    [activeThreads, pinnedThreads],
   );
-  const fleetOrderedActiveThreads = useMemo(
+  const sidebarAddonContributions = useSidebarAddonThreadContributions(addonEligibleThreads);
+  const addonThreadGroups = useMemo(
+    () => groupThreadsWithAddonContributions(addonEligibleThreads, sidebarAddonContributions),
+    [addonEligibleThreads, sidebarAddonContributions],
+  );
+  const addonThreadGroupByRootId = useMemo(
+    () => new Map(addonThreadGroups.map((group) => [group.thread.id, group])),
+    [addonThreadGroups],
+  );
+  const addonContributionByThreadId = useMemo(
     () =>
-      activeFleetThreadGroups.flatMap((group) => [
+      new Map(
+        sidebarAddonContributions.map((contribution) => [contribution.threadId, contribution]),
+      ),
+    [sidebarAddonContributions],
+  );
+  const activeAddonThreadGroups = useMemo(() => {
+    const activeThreadIds = new Set(activeThreads.map((thread) => thread.id));
+    return addonThreadGroups.filter((group) => activeThreadIds.has(group.thread.id));
+  }, [activeThreads, addonThreadGroups]);
+  const addonOrderedActiveThreads = useMemo(
+    () =>
+      activeAddonThreadGroups.flatMap((group) => [
         group.thread,
         ...group.children.map((child) => child.thread),
       ]),
-    [activeFleetThreadGroups],
+    [activeAddonThreadGroups],
   );
-  const activeFleetMetaByThreadKey = useMemo(() => {
-    const mapping = new Map<
-      string,
-      {
-        readonly agent: PersistFleetAgent;
-        readonly placement: "parent" | "child" | "standalone";
-        readonly childCount: number;
-      }
-    >();
-    for (const group of activeFleetThreadGroups) {
-      if (group.agent !== null) {
-        mapping.set(
-          scopedThreadKey(scopeThreadRef(group.thread.environmentId, group.thread.id)),
-          {
-            agent: group.agent,
-            placement: group.children.length > 0 ? "parent" : "standalone",
-            childCount: group.children.length,
-          },
-        );
-      }
-      for (const child of group.children) {
-        mapping.set(
-          scopedThreadKey(scopeThreadRef(child.thread.environmentId, child.thread.id)),
-          { agent: child.agent, placement: "child", childCount: 0 },
-        );
-      }
-    }
-    return mapping;
-  }, [activeFleetThreadGroups]);
 
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
@@ -2872,12 +2833,12 @@ export default function Sidebar(props: SidebarProps = {}) {
   const searchableThreads = useMemo(
     () => [
       ...pinnedThreads,
-      ...fleetOrderedActiveThreads,
+      ...addonOrderedActiveThreads,
       ...snoozedThreads,
       ...settledThreads,
       ...archivedThreads,
     ],
-    [archivedThreads, fleetOrderedActiveThreads, pinnedThreads, settledThreads, snoozedThreads],
+    [addonOrderedActiveThreads, archivedThreads, pinnedThreads, settledThreads, snoozedThreads],
   );
   const threadSearchResults = useMemo(
     () => searchSidebarThreadsByTitle(searchableThreads, threadSearchQuery),
@@ -3008,14 +2969,14 @@ export default function Sidebar(props: SidebarProps = {}) {
   const orderedThreads = useMemo(
     () => [
       ...pinnedThreads,
-      ...fleetOrderedActiveThreads,
+      ...addonOrderedActiveThreads,
       ...visibleSnoozedThreads,
       ...renderedSettledThreads,
       ...visibleArchivedThreads,
     ],
     [
       pinnedThreads,
-      fleetOrderedActiveThreads,
+      addonOrderedActiveThreads,
       visibleSnoozedThreads,
       renderedSettledThreads,
       visibleArchivedThreads,
@@ -3590,7 +3551,7 @@ export default function Sidebar(props: SidebarProps = {}) {
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
     items.push({ kind: "marker", marker: "pinned-divider" });
-    const activeRows = rowsOf(fleetOrderedActiveThreads, "active");
+    const activeRows = rowsOf(addonOrderedActiveThreads, "active");
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (snoozedThreads.length > 0) {
@@ -3604,7 +3565,7 @@ export default function Sidebar(props: SidebarProps = {}) {
     return items;
   }, [
     activeThreads.length,
-    fleetOrderedActiveThreads,
+    addonOrderedActiveThreads,
     pinnedThreads,
     renderedSettledThreads,
     settledThreads.length,
@@ -5072,15 +5033,17 @@ export default function Sidebar(props: SidebarProps = {}) {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
-                        const fleet =
-                          section === "active" ? (activeFleetMetaByThreadKey.get(threadKey) ?? null) : null;
+                        const addonContribution =
+                          section === "active" || section === "pinned"
+                            ? (addonContributionByThreadId.get(thread.id) ?? null)
+                            : null;
                         // Settled and snoozed are the ONLY things that collapse a
                         // row: every other thread is a full card. Density comes
                         // from users (or the auto rules) actually parking work,
                         // not from the sidebar second-guessing what still matters.
                         const isCard =
                           (section === "active" || section === "pinned") &&
-                          fleet?.placement !== "child";
+                          addonContribution?.kind !== "child";
                         const rowVariant = isCard ? "card" : "slim";
                         return (
                           <SidebarThreadRow
@@ -5192,9 +5155,7 @@ export default function Sidebar(props: SidebarProps = {}) {
                             onAcknowledgeWoke={acknowledgeWoke}
                             changeRequestSnapshot={changeRequestSnapshotByKey.get(threadKey) ?? null}
                             onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
-                            fleetAgent={fleet?.agent ?? null}
-                            fleetPlacement={fleet?.placement ?? null}
-                            fleetChildCount={fleet?.childCount ?? 0}
+                            addonContribution={addonContribution}
                           />
                         );
                       };

@@ -1048,10 +1048,10 @@ export function createServerEnvironmentAtoms<R, E>(
       staleTimeMs: 60_000,
       refreshTrigger: ({ environmentId }) => usagePricesAtom(environmentId),
     }),
-    persistFleet: createEnvironmentRpcQueryAtomFamily(runtime, {
+    persistFleet: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:persist-fleet",
-      tag: WS_METHODS.serverGetPersistFleet,
-      staleTimeMs: 15_000,
+      tag: WS_METHODS.subscribePersistFleet,
+      idleTtlMs: 0,
     }),
     configProjection,
     welcome,
