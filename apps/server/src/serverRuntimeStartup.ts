@@ -639,6 +639,11 @@ export const reconcileProviderSessions = Effect.gen(function* () {
       thread.archivedAt === null &&
       thread.deletedAt === null
     ) {
+      const recoveryTurnId = continuationTurnId ?? session.activeTurnId;
+      if (recoveryTurnId === null) {
+        yield* settleAsError(ORPHANED_PROVIDER_SESSION_ERROR);
+        continue;
+      }
       const prepared = yield* Effect.gen(function* () {
         yield* directory.upsert({
           ...binding.value,
@@ -646,9 +651,9 @@ export const reconcileProviderSessions = Effect.gen(function* () {
           runtimePayload: {
             ...readRuntimePayload(binding.value.runtimePayload),
             // Keep recovery durable if this process also exits before sending.
-            [SERVER_UPDATE_CONTINUATION_KEY]: session.activeTurnId ?? continuationTurnId,
             continueAfterServerUpdatePrepared: true,
             activeTurnId: null,
+            [SERVER_UPDATE_CONTINUATION_KEY]: recoveryTurnId,
           },
         });
         const resumedAt = DateTime.formatIso(yield* DateTime.now);
@@ -688,13 +693,16 @@ export const reconcileProviderSessions = Effect.gen(function* () {
               });
             }
             const capabilities = yield* providerService.getCapabilities(providerInstanceId);
-            yield* providerService.sendTurn({
-              threadId: thread.id,
-              ...(capabilities.promptlessTurnContinuation === true
-                ? { continuation: true }
-                : { input: SERVER_UPDATE_CONTINUATION_PROMPT }),
-              interactionMode: thread.interactionMode,
-            });
+            yield* providerService.sendTurn(
+              {
+                threadId: thread.id,
+                ...(capabilities.promptlessTurnContinuation === true
+                  ? { continuation: true }
+                  : { input: SERVER_UPDATE_CONTINUATION_PROMPT }),
+                interactionMode: thread.interactionMode,
+              },
+              { requireResumeCursor: binding.value.resumeCursor },
+            );
           });
           const continuationExit = yield* Effect.exit(continuation);
           if (Exit.isSuccess(continuationExit) || Cause.hasInterrupts(continuationExit.cause)) {

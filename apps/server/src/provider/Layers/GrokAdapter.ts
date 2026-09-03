@@ -2130,6 +2130,15 @@ export function makeGrokAdapter(grokSettings: GrokSettings, options?: GrokAdapte
       capabilities: { sessionModelSwitch: "in-session" },
       compaction: { type: "slash-command", command: "/compact" },
       startSession,
+      isSameResumeCursor: (persisted, recovered) => {
+        const persistedSession = parseGrokResume(persisted);
+        const recoveredSession = parseGrokResume(recovered);
+        return (
+          persistedSession !== undefined &&
+          recoveredSession !== undefined &&
+          persistedSession.sessionId === recoveredSession.sessionId
+        );
+      },
       sendTurn,
       interruptTurn,
       readThread,

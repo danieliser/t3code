@@ -5132,6 +5132,15 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     },
     compaction: { type: "slash-command", command: "/compact" },
     startSession,
+    isSameResumeCursor: (persisted, recovered) => {
+      const persistedResume = readClaudeResumeState(persisted)?.resume;
+      const recoveredResume = readClaudeResumeState(recovered)?.resume;
+      return (
+        persistedResume !== undefined &&
+        recoveredResume !== undefined &&
+        persistedResume === recoveredResume
+      );
+    },
     sendTurn,
     interruptTurn,
     readThread,

@@ -3844,6 +3844,15 @@ export function makeOpenCodeAdapter(
         sessionModelSwitch: "in-session",
       },
       startSession,
+      isSameResumeCursor: (persisted, recovered) => {
+        const persistedSession = parseOpenCodeResume(persisted);
+        const recoveredSession = parseOpenCodeResume(recovered);
+        return (
+          persistedSession !== undefined &&
+          recoveredSession !== undefined &&
+          persistedSession.sessionId === recoveredSession.sessionId
+        );
+      },
       sendTurn,
       compaction: { type: "native", start: compactThread },
       interruptTurn,

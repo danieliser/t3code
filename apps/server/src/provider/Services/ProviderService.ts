@@ -52,6 +52,10 @@ export interface ProviderServiceShape {
    */
   readonly sendTurn: (
     input: ProviderSendTurnInput,
+    options?: {
+      /** Fail recovery unless the adapter resumed this exact provider conversation. */
+      readonly requireResumeCursor?: unknown;
+    },
   ) => Effect.Effect<ProviderTurnStartResult, ProviderServiceError>;
 
   readonly compactThread: (

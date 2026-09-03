@@ -1231,6 +1231,15 @@ export function makeCursorAdapter(
       capabilities: { sessionModelSwitch: "in-session" },
       compaction: { type: "slash-command", command: "/compress" },
       startSession,
+      isSameResumeCursor: (persisted, recovered) => {
+        const persistedSession = parseCursorResume(persisted);
+        const recoveredSession = parseCursorResume(recovered);
+        return (
+          persistedSession !== undefined &&
+          recoveredSession !== undefined &&
+          persistedSession.sessionId === recoveredSession.sessionId
+        );
+      },
       sendTurn,
       interruptTurn,
       readThread,
