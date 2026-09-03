@@ -1053,6 +1053,11 @@ export function createServerEnvironmentAtoms<R, E>(
       tag: WS_METHODS.subscribePersistFleet,
       idleTtlMs: 0,
     }),
+    executeAddonAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:execute-addon-action",
+      tag: WS_METHODS.serverExecuteAddonAction,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
     configProjection,
     welcome,
     consumeResetCredit: createEnvironmentRpcCommand(runtime, {

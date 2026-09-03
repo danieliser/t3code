@@ -1405,6 +1405,19 @@ export default function ChatView(props: ChatViewProps) {
   const upsertKeybinding = useAtomCommand(serverEnvironment.upsertKeybinding, {
     reportFailure: false,
   });
+  const executeAddonAction = useAtomCommand(serverEnvironment.executeAddonAction, {
+    reportFailure: false,
+  });
+  const composerAddonHost = useMemo(
+    () => ({
+      executeServerAction: async (input: import("@t3tools/contracts").ServerAddonActionInput) => {
+        const result = await executeAddonAction({ environmentId, input });
+        if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+        return result.value.payload;
+      },
+    }),
+    [environmentId, executeAddonAction],
+  );
   const openTerminal = useAtomCommand(terminalEnvironment.open, "terminal open");
   const writeTerminal = useAtomCommand(terminalEnvironment.write, "terminal write");
   const closeTerminalMutation = useAtomCommand(terminalEnvironment.close, "terminal close");
@@ -6917,6 +6930,7 @@ export default function ChatView(props: ChatViewProps) {
             targetKey: composerTargetKey(composerDraftTarget),
             threadRef: scopeThreadRef(environmentId, threadIdForSend),
             payloads: addonSubmission.payloads,
+            host: composerAddonHost,
           });
           if (addonFailures.length > 0) {
             toastManager.add(

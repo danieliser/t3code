@@ -20,8 +20,13 @@ const response = (overrides: Partial<PersistFleetApiResponse> = {}): PersistFlee
       presence: { state: "online", last_read_at: "2026-09-02T23:04:31.000Z" },
       work: { tasks_running: 0, tasks_pending: 2, is_busy: false },
       boards: { slugs: ["popup-maker-growth"], claims: 19, claims_lapsed: 7, items_completed: 8 },
+      display_name: "T3 Developer",
       role: null,
       parent_agent_id: null,
+      project_key: "popup-maker-growth",
+      authority: ["fleet:manage"],
+      skills: ["persist-board"],
+      lifecycle: "active",
     },
   ],
   unknown_fields: {
@@ -41,9 +46,13 @@ describe("projectPersistFleetSnapshot", () => {
     expect(snapshot.unknownFields).toEqual({ role: "not recorded", parentAgentId: "not recorded" });
     expect(snapshot.agents[0]).toMatchObject({
       agentId: "t3-developer",
-      displayName: "t3-developer",
+      displayName: "T3 Developer",
       role: null,
       parentAgentId: null,
+      projectKey: "popup-maker-growth",
+      authority: ["fleet:manage"],
+      skills: ["persist-board"],
+      lifecycle: "active",
       threadId: null,
       work: { state: "idle_waiting", activeTasks: 0, waitingTasks: 2, blockedTasks: null },
       session: { claimedItems: 19, lapsedClaims: 7, completedItems: 8 },

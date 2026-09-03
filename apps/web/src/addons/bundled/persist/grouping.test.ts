@@ -19,6 +19,10 @@ const agent = (overrides: Partial<PersistFleetAgent>): PersistFleetAgent => ({
   displayName: "Agent",
   role: null,
   parentAgentId: null,
+  projectKey: null,
+  authority: [],
+  skills: [],
+  lifecycle: "active",
   threadId: null,
   mailbox: {
     state: "never_seen",

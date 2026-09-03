@@ -9,6 +9,10 @@ const agent = (overrides: Partial<PersistFleetAgent> = {}): PersistFleetAgent =>
   displayName: "PERSIST Orchestrator",
   role: "orchestrator",
   parentAgentId: null,
+  projectKey: "persistence",
+  authority: [],
+  skills: [],
+  lifecycle: "active",
   threadId: "thread-parent" as PersistFleetAgent["threadId"],
   mailbox: {
     state: "online",

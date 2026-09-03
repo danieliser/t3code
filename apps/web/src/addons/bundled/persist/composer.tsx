@@ -277,6 +277,13 @@ function usePersistComposerContributions(
 export const persistComposerAddon: ComposerAddon = {
   useContributions: usePersistComposerContributions,
   readSubmissionPayload: readPersistNewChatConfig,
-  commitSubmission: ({ threadRef, payload }) => commitPersistThreadBinding({ threadRef, payload }),
+  commitSubmission: async ({ threadRef, payload, host }) => {
+    await host.executeServerAction({
+      addonId: "persist",
+      actionId: "fleet.agent.upsert",
+      payload,
+    });
+    commitPersistThreadBinding({ threadRef, payload });
+  },
   clearSubmissionPayload: clearPersistNewChatConfig,
 };

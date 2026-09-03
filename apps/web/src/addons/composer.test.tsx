@@ -16,6 +16,7 @@ import {
 } from "./composer";
 
 const THREAD_REF = scopeThreadRef(EnvironmentId.make("environment-1"), ThreadId.make("thread-1"));
+const ADDON_HOST = { executeServerAction: vi.fn(async () => ({})) };
 
 function contribution(
   addonId: string,
@@ -101,6 +102,7 @@ describe("composer addon lifecycle", () => {
           broken: { revision: "1", payload: { role: "broken" } },
           ready: { revision: "2", payload: { role: "ready" } },
         },
+        host: ADDON_HOST,
       },
     );
 
@@ -111,6 +113,7 @@ describe("composer addon lifecycle", () => {
       threadRef: THREAD_REF,
       revision: "2",
       payload: { role: "ready" },
+      host: ADDON_HOST,
     });
     expect(clearReady).toHaveBeenCalledWith({
       targetKey: "draft:1",
@@ -132,6 +135,7 @@ describe("composer addon lifecycle", () => {
       targetKey: "draft:1",
       threadRef: THREAD_REF,
       payloads: { fleet: snapshot },
+      host: ADDON_HOST,
     });
 
     expect(clear).toHaveBeenCalledWith({

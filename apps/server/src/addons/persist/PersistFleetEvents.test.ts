@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { isPersistFleetInvalidationMessage, persistWebSocketUrl } from "./PersistFleetEvents.ts";
+import {
+  isPersistFleetInvalidationMessage,
+  PERSIST_FLEET_CHANNEL,
+  persistWebSocketUrl,
+} from "./PersistFleetEvents.ts";
 
 describe("persistWebSocketUrl", () => {
   it("derives local and TLS websocket endpoints", () => {
@@ -12,9 +16,26 @@ describe("persistWebSocketUrl", () => {
 });
 
 describe("isPersistFleetInvalidationMessage", () => {
-  it("accepts subscription and event frames only", () => {
-    expect(isPersistFleetInvalidationMessage({ type: "subscribed" })).toBe(true);
-    expect(isPersistFleetInvalidationMessage({ type: "event", event_id: "8" })).toBe(true);
+  it("accepts only fleet subscription and event frames", () => {
+    expect(PERSIST_FLEET_CHANNEL).toBe("fleet");
+    expect(isPersistFleetInvalidationMessage({ type: "subscribed", channel: "fleet" })).toBe(true);
+    expect(
+      isPersistFleetInvalidationMessage({
+        type: "event",
+        channel: "fleet",
+        event: "task.updated",
+        event_id: "8",
+      }),
+    ).toBe(true);
+    expect(
+      isPersistFleetInvalidationMessage({
+        type: "event",
+        channel: "audit",
+        event: "http.request.completed",
+        data: { path: "/api/v1/fleet" },
+        event_id: "9",
+      }),
+    ).toBe(false);
     expect(isPersistFleetInvalidationMessage({ type: "pong" })).toBe(false);
     expect(isPersistFleetInvalidationMessage("event")).toBe(false);
   });

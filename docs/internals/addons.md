@@ -53,6 +53,15 @@ composer form such as preview annotations.
 Hooks must remain deterministic for the lifetime of the compiled build. Addons
 must not change their hook topology at runtime.
 
+When a commit needs a server-held credential or host-only service, use the
+`host.executeServerAction` callback. The core transports an opaque payload
+through the authenticated `server.executeAddonAction` RPC; a handler under
+`apps/server/src/addons/` owns validation and execution. Browser addon code must
+not read service tokens, call privileged local APIs directly, or create a
+parallel mutation socket. A rejected server action fails that addon's commit,
+so its staged configuration remains retryable and no local binding is written
+ahead of durable state.
+
 ## Sidebar contract
 
 A sidebar addon returns contributions keyed by environment-scoped T3 thread

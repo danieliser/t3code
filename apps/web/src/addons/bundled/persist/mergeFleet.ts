@@ -40,6 +40,10 @@ export function mergePersistBindings(
       displayName: binding.displayName,
       role: binding.role,
       parentAgentId: binding.parentAgentId,
+      projectKey: null,
+      authority: [],
+      skills: [],
+      lifecycle: "active",
       threadId: current?.threadId ?? (binding.threadId as PersistFleetAgent["threadId"]),
       mailbox: current?.mailbox ?? {
         state: "never_seen",

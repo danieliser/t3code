@@ -19,6 +19,9 @@ export const PersistFleetRole = Schema.Literals([
 ]);
 export type PersistFleetRole = typeof PersistFleetRole.Type;
 
+export const PersistFleetLifecycle = Schema.Literals(["active", "settled", "retired"]);
+export type PersistFleetLifecycle = typeof PersistFleetLifecycle.Type;
+
 export const PersistFleetMailboxState = Schema.Literals([
   "online",
   "idle",
@@ -75,6 +78,10 @@ export const PersistFleetAgent = Schema.Struct({
   role: Schema.NullOr(PersistFleetRole),
   /** Null until PERSIST has stamped durable parentage. Never infer it in T3. */
   parentAgentId: Schema.NullOr(TrimmedNonEmptyString),
+  projectKey: Schema.NullOr(TrimmedNonEmptyString),
+  authority: Schema.Array(TrimmedNonEmptyString),
+  skills: Schema.Array(TrimmedNonEmptyString),
+  lifecycle: Schema.NullOr(PersistFleetLifecycle),
   /** The currently resolved T3 route; route bindings themselves are not cached here. */
   threadId: Schema.NullOr(ThreadId),
   mailbox: PersistFleetMailbox,
@@ -116,8 +123,13 @@ export const PersistFleetApiResponse = Schema.Struct({
         claims_lapsed: NonNegativeInt,
         items_completed: NonNegativeInt,
       }),
+      display_name: TrimmedNonEmptyString,
       role: Schema.NullOr(PersistFleetRole),
       parent_agent_id: Schema.NullOr(TrimmedNonEmptyString),
+      project_key: Schema.NullOr(TrimmedNonEmptyString),
+      authority: Schema.Array(TrimmedNonEmptyString),
+      skills: Schema.Array(TrimmedNonEmptyString),
+      lifecycle: Schema.NullOr(PersistFleetLifecycle),
     }),
   ),
   unknown_fields: Schema.Struct({
@@ -126,6 +138,15 @@ export const PersistFleetApiResponse = Schema.Struct({
   }),
 });
 export type PersistFleetApiResponse = typeof PersistFleetApiResponse.Type;
+
+export const PersistFleetAgentRegistrationInput = Schema.Struct({
+  agentId: TrimmedNonEmptyString,
+  displayName: TrimmedNonEmptyString,
+  role: PersistFleetRole,
+  parentAgentId: Schema.NullOr(TrimmedNonEmptyString),
+  boardSlugs: Schema.Array(TrimmedNonEmptyString),
+});
+export type PersistFleetAgentRegistrationInput = typeof PersistFleetAgentRegistrationInput.Type;
 
 export class PersistFleetUnavailableError extends Schema.TaggedErrorClass<PersistFleetUnavailableError>()(
   "PersistFleetUnavailableError",

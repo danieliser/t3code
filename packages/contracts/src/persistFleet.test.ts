@@ -16,6 +16,10 @@ function validSnapshot() {
         displayName: "PERSIST Orchestrator",
         role: "orchestrator",
         parentAgentId: null,
+        projectKey: "persistence",
+        authority: ["fleet:manage"],
+        skills: ["persist-board"],
+        lifecycle: "active",
         threadId: "thread-parent",
         mailbox: {
           state: "online",

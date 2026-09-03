@@ -1,5 +1,6 @@
 import type { EnvironmentId } from "@t3tools/contracts";
 import type { ScopedThreadRef } from "@t3tools/contracts";
+import type { ServerAddonActionInput } from "@t3tools/contracts";
 import type { ReactNode } from "react";
 
 export interface ComposerAddonContext {
@@ -25,6 +26,10 @@ export interface ComposerAddonSubmissionPayload {
   readonly payload: unknown;
 }
 
+export interface ComposerAddonHost {
+  readonly executeServerAction: (input: ServerAddonActionInput) => Promise<unknown>;
+}
+
 export interface ComposerAddon {
   readonly useContributions: (
     context: ComposerAddonContext,
@@ -35,6 +40,7 @@ export interface ComposerAddon {
     readonly threadRef: ScopedThreadRef;
     readonly revision: string;
     readonly payload: unknown;
+    readonly host: ComposerAddonHost;
   }) => void | Promise<void>;
   /**
    * Atomically clear only when the addon's current revision still equals

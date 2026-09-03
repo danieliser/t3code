@@ -82,6 +82,7 @@ import { HttpRouter, HttpServerRequest, HttpServerRespondable } from "effect/uns
 import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
+import { executeServerAddonAction } from "./addons/registry.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -1801,6 +1802,10 @@ const makeWsRpcLayer = (
           ),
         [WS_METHODS.serverGetPersistFleet]: (input) =>
           observeRpcEffect(WS_METHODS.serverGetPersistFleet, readPersistFleetSnapshot(input), {
+            "rpc.aggregate": "server",
+          }),
+        [WS_METHODS.serverExecuteAddonAction]: (input) =>
+          observeRpcEffect(WS_METHODS.serverExecuteAddonAction, executeServerAddonAction(input), {
             "rpc.aggregate": "server",
           }),
         [WS_METHODS.serverRefreshProviders]: (input) =>

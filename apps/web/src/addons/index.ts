@@ -118,6 +118,7 @@ export async function commitComposerAddonSubmissionPayloadsFrom(
     readonly targetKey: string;
     readonly threadRef: ScopedThreadRef;
     readonly payloads: Readonly<Record<string, ComposerAddonSubmissionPayload>>;
+    readonly host: import("./composer").ComposerAddonHost;
   },
 ): Promise<readonly ComposerAddonLifecycleFailure[]> {
   const failures: ComposerAddonLifecycleFailure[] = [];
@@ -131,6 +132,7 @@ export async function commitComposerAddonSubmissionPayloadsFrom(
         threadRef: input.threadRef,
         revision: snapshot.revision,
         payload: snapshot.payload,
+        host: input.host,
       });
     } catch (error) {
       failures.push({ addonId, phase: "commit", error });
@@ -154,6 +156,7 @@ export function commitComposerAddonSubmissionPayloads(input: {
   readonly targetKey: string;
   readonly threadRef: ScopedThreadRef;
   readonly payloads: Readonly<Record<string, ComposerAddonSubmissionPayload>>;
+  readonly host: import("./composer").ComposerAddonHost;
 }): Promise<readonly ComposerAddonLifecycleFailure[]> {
   return commitComposerAddonSubmissionPayloadsFrom(composerAddons, input);
 }

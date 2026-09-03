@@ -12,6 +12,11 @@ import {
   ProviderSetupInput,
 } from "./providerSetup.ts";
 import { PersistFleetSnapshot, PersistFleetUnavailableError } from "./persistFleet.ts";
+import {
+  ServerAddonActionError,
+  ServerAddonActionInput,
+  ServerAddonActionResult,
+} from "./addon.ts";
 
 import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
 import {
@@ -338,6 +343,7 @@ export const WS_METHODS = {
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
   serverGetPersistFleet: "server.getPersistFleet",
+  serverExecuteAddonAction: "server.executeAddonAction",
 
   // Cloud environment methods
   cloudGetRelayClientStatus: "cloud.getRelayClientStatus",
@@ -413,6 +419,12 @@ export const WsServerGetPersistFleetRpc = Rpc.make(WS_METHODS.serverGetPersistFl
   payload: Schema.Struct({ includeOffline: Schema.optional(Schema.Boolean) }),
   success: PersistFleetSnapshot,
   error: Schema.Union([PersistFleetUnavailableError, EnvironmentAuthorizationError]),
+});
+
+export const WsServerExecuteAddonActionRpc = Rpc.make(WS_METHODS.serverExecuteAddonAction, {
+  payload: ServerAddonActionInput,
+  success: ServerAddonActionResult,
+  error: Schema.Union([ServerAddonActionError, EnvironmentAuthorizationError]),
 });
 
 export const WsSubscribePersistFleetRpc = Rpc.make(WS_METHODS.subscribePersistFleet, {
@@ -1209,6 +1221,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerProbeRpc,
   WsServerGetConfigRpc,
   WsServerGetPersistFleetRpc,
+  WsServerExecuteAddonActionRpc,
   WsSubscribePersistFleetRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,

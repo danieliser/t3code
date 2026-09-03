@@ -10,6 +10,7 @@ import { resolvePersistToken } from "./PersistFleetClient.ts";
 const DEFAULT_DAEMON_URL = "http://127.0.0.1:8803";
 const RECONNECT_DELAY_MS = 1_000;
 const RECONCILE_INTERVAL_MS = 30_000;
+export const PERSIST_FLEET_CHANNEL = "fleet";
 
 export function persistWebSocketUrl(daemonUrl: string): string {
   const url = new URL(daemonUrl);
@@ -23,7 +24,10 @@ export function persistWebSocketUrl(daemonUrl: string): string {
 export function isPersistFleetInvalidationMessage(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const message = value as Record<string, unknown>;
-  return message.type === "event" || message.type === "subscribed";
+  return (
+    (message.type === "event" || message.type === "subscribed") &&
+    message.channel === PERSIST_FLEET_CHANNEL
+  );
 }
 
 /**
@@ -52,7 +56,7 @@ export const persistFleetInvalidations = Stream.callback<number, never, FileSyst
         });
         socket.on("open", () => {
           Queue.offerUnsafe(queue, Date.now());
-          socket?.send(JSON.stringify({ type: "subscribe", channel: "audit" }));
+          socket?.send(JSON.stringify({ type: "subscribe", channel: PERSIST_FLEET_CHANNEL }));
         });
         socket.on("message", (raw) => {
           try {

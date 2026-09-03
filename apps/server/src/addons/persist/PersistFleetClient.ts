@@ -41,9 +41,13 @@ export function projectPersistFleetSnapshot(
     },
     agents: response.agents.map((agent) => ({
       agentId: agent.agent_id,
-      displayName: agent.agent_id,
+      displayName: agent.display_name,
       role: agent.role,
       parentAgentId: agent.parent_agent_id,
+      projectKey: agent.project_key,
+      authority: agent.authority,
+      skills: agent.skills,
+      lifecycle: agent.lifecycle,
       // Routes are resolved from T3's live activity projection, never stored as
       // a second durable source of truth.
       threadId: options.threadIdByAgentId?.get(agent.agent_id) ?? null,
