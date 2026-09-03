@@ -237,7 +237,10 @@ import {
   sidebarProviderInstanceKey,
 } from "./sidebar/sidebarProviderFilters";
 import { HiddenProjectsShelfLabel } from "./HiddenProjectsShelfLabel";
-import { ThreadLabelBadgesForThread, ThreadLabelPickerDialog } from "./ThreadLabels";
+import {
+  ThreadLabelBadgesForThread,
+  ThreadLabelPickerDialog,
+} from "../addons/bundled/thread-labels/ThreadLabels";
 import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";

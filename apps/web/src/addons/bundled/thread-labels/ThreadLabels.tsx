@@ -19,10 +19,11 @@ import {
   THREAD_LABEL_COLORS,
   THREAD_LABEL_NAME_MAX_LENGTH,
   type ThreadLabel,
-} from "../threadLabels";
-import { useUiStateStore } from "../uiStateStore";
-import { cn } from "../lib/utils";
-import { Button } from "./ui/button";
+} from "../../../threadLabels";
+import { useUiStateStore } from "../../../uiStateStore";
+import { cn } from "../../../lib/utils";
+import { threadLabelApi } from "./api";
+import { Button } from "../../../components/ui/button";
 import {
   AlertDialog,
   AlertDialogClose,
@@ -31,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogPopup,
   AlertDialogTitle,
-} from "./ui/alert-dialog";
+} from "../../../components/ui/alert-dialog";
 import {
   Dialog,
   DialogDescription,
@@ -40,32 +41,39 @@ import {
   DialogPanel,
   DialogPopup,
   DialogTitle,
-} from "./ui/dialog";
-import { Input } from "./ui/input";
+} from "../../../components/ui/dialog";
+import { Input } from "../../../components/ui/input";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "../../../components/ui/tooltip";
 
 const DEFAULT_THREAD_LABEL_COLOR = THREAD_LABEL_COLORS[0];
 
 function ThreadLabelBadge({ label, compact = false }: { label: ThreadLabel; compact?: boolean }) {
   return (
-    <span
-      className={cn(
-        "inline-flex min-w-0 shrink-0 items-center gap-1 rounded-full border font-medium text-foreground/85",
-        compact ? "h-4 max-w-18 px-1 text-[9px]" : "h-5 max-w-24 px-1.5 text-[10px]",
-      )}
-      style={{
-        backgroundColor: `${label.color}18`,
-        borderColor: `${label.color}66`,
-      }}
-      title={label.name}
-      data-testid={`thread-label-badge-${label.id}`}
-    >
-      <span
-        aria-hidden
-        className={cn("shrink-0 rounded-full", compact ? "size-1.5" : "size-2")}
-        style={{ backgroundColor: label.color }}
-      />
-      <span className="truncate">{label.name}</span>
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "inline-flex min-w-0 shrink-0 items-center gap-1 rounded-full border font-medium text-foreground/85",
+              compact ? "h-4 max-w-18 px-1 text-[9px]" : "h-5 max-w-24 px-1.5 text-[10px]",
+            )}
+            style={{
+              backgroundColor: `${label.color}18`,
+              borderColor: `${label.color}66`,
+            }}
+            data-testid={`thread-label-badge-${label.id}`}
+          />
+        }
+      >
+        <span
+          aria-hidden
+          className={cn("shrink-0 rounded-full", compact ? "size-1.5" : "size-2")}
+          style={{ backgroundColor: label.color }}
+        />
+        <span className="truncate">{label.name}</span>
+      </TooltipTrigger>
+      <TooltipPopup>{label.name}</TooltipPopup>
+    </Tooltip>
   );
 }
 
@@ -97,18 +105,26 @@ export function ThreadLabelBadgesForThread(props: {
         <ThreadLabelBadge key={label.id} label={label} compact={compact} />
       ))}
       {hiddenCount > 0 ? (
-        <span
-          className={cn(
-            "inline-flex shrink-0 items-center justify-center rounded-full border border-border bg-background/70 font-medium text-muted-foreground",
-            compact ? "h-4 min-w-4 px-1 text-[9px]" : "h-5 min-w-5 px-1 text-[10px]",
-          )}
-          title={labels
-            .slice(visibleLabels.length)
-            .map((label) => label.name)
-            .join(", ")}
-        >
-          +{hiddenCount}
-        </span>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span
+                className={cn(
+                  "inline-flex shrink-0 items-center justify-center rounded-full border border-border bg-background/70 font-medium text-muted-foreground",
+                  compact ? "h-4 min-w-4 px-1 text-[9px]" : "h-5 min-w-5 px-1 text-[10px]",
+                )}
+              />
+            }
+          >
+            +{hiddenCount}
+          </TooltipTrigger>
+          <TooltipPopup>
+            {labels
+              .slice(visibleLabels.length)
+              .map((label) => label.name)
+              .join(", ")}
+          </TooltipPopup>
+        </Tooltip>
       ) : null}
     </span>
   );
@@ -136,10 +152,6 @@ export function ThreadLabelPickerDialog({
   const wasOpenRef = useRef(false);
   const labels = useUiStateStore((state) => state.threadLabels);
   const threadLabelIdsByThreadKey = useUiStateStore((state) => state.threadLabelIdsByThreadKey);
-  const createThreadLabel = useUiStateStore((state) => state.createThreadLabel);
-  const updateThreadLabel = useUiStateStore((state) => state.updateThreadLabel);
-  const deleteThreadLabel = useUiStateStore((state) => state.deleteThreadLabel);
-  const setThreadLabelAssigned = useUiStateStore((state) => state.setThreadLabelAssigned);
 
   useEffect(() => {
     const justOpened = open && !wasOpenRef.current;
@@ -181,9 +193,9 @@ export function ThreadLabelPickerDialog({
 
   const handleCreate = () => {
     if (!normalizedName) return;
-    const labelId = createThreadLabel(normalizedName, color);
+    const labelId = threadLabelApi.ensure(normalizedName, color);
     if (!labelId) return;
-    setThreadLabelAssigned(threadKeys, labelId, true);
+    threadLabelApi.setAssigned(threadKeys, labelId, true);
     setMode("pick");
     setSearch(normalizedName);
     setName("");
@@ -191,7 +203,7 @@ export function ThreadLabelPickerDialog({
 
   const handleSave = () => {
     if (!editingLabelId || !normalizedName || duplicateLabel || !hasEditorChanges) return;
-    if (!updateThreadLabel(editingLabelId, normalizedName, color)) return;
+    if (!threadLabelApi.update(editingLabelId, normalizedName, color)) return;
     setMode("pick");
     setEditingLabelId(null);
     setName("");
@@ -199,7 +211,7 @@ export function ThreadLabelPickerDialog({
 
   const handleDelete = () => {
     if (!editingLabelId) return;
-    deleteThreadLabel(editingLabelId);
+    threadLabelApi.remove(editingLabelId);
     setDeleteConfirmOpen(false);
     setMode("pick");
     setEditingLabelId(null);
@@ -288,7 +300,9 @@ export function ThreadLabelPickerDialog({
                           role="checkbox"
                           aria-checked={partlySelected ? "mixed" : allSelected}
                           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch rounded-md px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() => setThreadLabelAssigned(threadKeys, label.id, !allSelected)}
+                          onClick={() =>
+                            threadLabelApi.setAssigned(threadKeys, label.id, !allSelected)
+                          }
                           data-testid={`thread-label-option-${label.id}`}
                         >
                           <span
