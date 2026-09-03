@@ -35,15 +35,16 @@ export function mergePersistBindings(
   const byAgentId = new Map(agents.map((agent) => [agent.agentId, agent]));
   for (const binding of bindings) {
     const current = byAgentId.get(binding.agentId) ?? null;
+    const hasDurableIdentity = current?.lifecycle !== null && current?.lifecycle !== undefined;
     byAgentId.set(binding.agentId, {
       agentId: binding.agentId,
-      displayName: binding.displayName,
-      role: binding.role,
-      parentAgentId: binding.parentAgentId,
-      projectKey: null,
-      authority: [],
-      skills: [],
-      lifecycle: "active",
+      displayName: hasDurableIdentity ? current.displayName : binding.displayName,
+      role: hasDurableIdentity ? current.role : binding.role,
+      parentAgentId: hasDurableIdentity ? current.parentAgentId : binding.parentAgentId,
+      projectKey: hasDurableIdentity ? current.projectKey : null,
+      authority: hasDurableIdentity ? current.authority : [],
+      skills: hasDurableIdentity ? current.skills : [],
+      lifecycle: hasDurableIdentity ? current.lifecycle : "active",
       threadId: current?.threadId ?? (binding.threadId as PersistFleetAgent["threadId"]),
       mailbox: current?.mailbox ?? {
         state: "never_seen",
@@ -61,7 +62,7 @@ export function mergePersistBindings(
         lapsedClaims: null,
         completedItems: null,
       },
-      boards: bindingBoards(binding, current),
+      boards: hasDurableIdentity ? current.boards : bindingBoards(binding, current),
     });
   }
   return [...byAgentId.values()];

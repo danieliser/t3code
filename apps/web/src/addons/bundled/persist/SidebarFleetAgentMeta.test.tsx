@@ -80,6 +80,7 @@ describe("SidebarFleetAgentMeta", () => {
       />,
     );
 
+    expect(markup).toContain('data-testid="sidebar-fleet-agent-name"');
     expect(markup).toContain("Team agent");
     expect(markup).toContain("Work unknown");
     expect(markup).not.toContain("Waiting");

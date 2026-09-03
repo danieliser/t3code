@@ -125,6 +125,10 @@ export const primaryServerObservabilityAtom = Atom.make(
 export const primaryPersistFleetAtom = Atom.make((get): PersistFleetSnapshot | null => {
   const environmentId = get(primaryEnvironmentIdAtom);
   if (environmentId === null) return null;
-  const result = get(serverEnvironment.persistFleet({ environmentId, input: {} }));
+  // Sidebar bindings must survive agents going idle/offline and must resolve a
+  // newly registered identity before its first mailbox read.
+  const result = get(
+    serverEnvironment.persistFleet({ environmentId, input: { includeOffline: true } }),
+  );
   return Option.getOrNull(AsyncResult.value(result));
 }).pipe(Atom.withLabel("web-primary-persist-fleet"));

@@ -50,4 +50,32 @@ describe("mergePersistBindings", () => {
       work: { activeTasks: 2 },
     });
   });
+
+  it("uses durable registry identity after PERSIST has registered the agent", () => {
+    const live: PersistFleetAgent = {
+      agentId: "growth-lead",
+      displayName: "Growth Orchestrator Live",
+      role: "commander",
+      parentAgentId: null,
+      projectKey: "growth-os",
+      authority: ["fleet:manage"],
+      skills: ["persist-fleet-orchestrator"],
+      lifecycle: "active",
+      threadId: ThreadId.make("thread-live"),
+      mailbox: { state: "online", lastReadAt: null, lastSignalKind: null },
+      work: { state: "active", activeTasks: 2, waitingTasks: 0, blockedTasks: null },
+      session: { claimedItems: 4, lapsedClaims: 1, completedItems: 3 },
+      boards: [],
+    };
+
+    expect(mergePersistBindings([live], [binding])[0]).toMatchObject({
+      displayName: "Growth Orchestrator Live",
+      role: "commander",
+      projectKey: "growth-os",
+      authority: ["fleet:manage"],
+      skills: ["persist-fleet-orchestrator"],
+      lifecycle: "active",
+      threadId: "thread-live",
+    });
+  });
 });
