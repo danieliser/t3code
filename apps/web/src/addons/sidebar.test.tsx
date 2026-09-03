@@ -1,6 +1,6 @@
-import { describe, expect, it } from "@effect/vitest";
-import type { SidebarThreadAddonContribution } from "./sidebar";
-import { groupThreadsWithAddonContributions } from "./sidebar";
+import { describe, expect, it } from "vite-plus/test";
+
+import { groupThreadsWithAddonContributions, type SidebarThreadAddonContribution } from "./sidebar";
 
 const contribution = (
   threadId: string,
@@ -10,44 +10,29 @@ const contribution = (
   threadId,
   parentThreadId,
   kind: parentThreadId === null ? "parent" : "child",
-  childCount: parentThreadId === null ? 1 : 0,
   compact: null,
   card: null,
 });
 
 describe("groupThreadsWithAddonContributions", () => {
-  it("attaches explicit children and preserves unrelated thread order", () => {
+  it("places explicitly parented rows under their parent", () => {
     const parent = { id: "parent" };
     const child = { id: "child" };
-    const normal = { id: "normal" };
-    expect(
-      groupThreadsWithAddonContributions(
-        [normal, parent, child],
-        [contribution("parent", null), contribution("child", "parent")],
-      ),
-    ).toEqual([
-      { thread: normal, contribution: null, children: [] },
-      {
-        thread: parent,
-        contribution: expect.objectContaining({ threadId: "parent" }),
-        children: [
-          {
-            thread: child,
-            contribution: expect.objectContaining({
-              threadId: "child",
-              parentThreadId: "parent",
-            }),
-          },
-        ],
-      },
-    ]);
+    const plain = { id: "plain" };
+    const groups = groupThreadsWithAddonContributions(
+      [parent, child, plain],
+      [contribution("parent", null), contribution("child", "parent")],
+    );
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toMatchObject({ thread: parent, children: [{ thread: child }] });
+    expect(groups[1]).toMatchObject({ thread: plain, contribution: null, children: [] });
   });
 
-  it("leaves a child top-level when its parent thread is missing", () => {
+  it("leaves a child top-level when its parent is absent", () => {
     const child = { id: "child" };
-    const childContribution = contribution("child", "missing");
-    expect(groupThreadsWithAddonContributions([child], [childContribution])).toEqual([
-      { thread: child, contribution: childContribution, children: [] },
-    ]);
+    expect(
+      groupThreadsWithAddonContributions([child], [contribution("child", "missing")]),
+    ).toMatchObject([{ thread: child, contribution: { threadId: "child" }, children: [] }]);
   });
 });

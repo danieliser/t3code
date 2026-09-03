@@ -6,9 +6,9 @@ export interface SidebarThreadAddonContribution {
   readonly threadId: string;
   readonly parentThreadId: string | null;
   readonly kind: "parent" | "child" | "standalone";
-  readonly childCount: number;
   readonly compact: ReactNode;
   readonly card: ReactNode;
+  readonly cardClassName?: string;
 }
 
 export interface SidebarThreadAddonMember<TThread> {
@@ -23,7 +23,6 @@ export interface SidebarThreadAddonGroup<TThread> {
 }
 
 export interface SidebarAddon {
-  readonly id: string;
   readonly useThreadContributions: (
     threads: readonly EnvironmentThreadShell[],
   ) => readonly SidebarThreadAddonContribution[];

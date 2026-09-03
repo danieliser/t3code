@@ -1799,12 +1799,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               data-addon-id={props.addonContribution?.addonId}
               data-addon-parent={props.addonContribution?.kind === "parent" || undefined}
               aria-busy={isRegeneratingTitle || undefined}
-              className={cn(
-                rowSurfaceClassName,
-                props.addonContribution?.kind === "standalone" && "ring-1 ring-fuchsia-500/30",
-                props.addonContribution?.kind === "parent" &&
-                  "ring-1 ring-emerald-500/45 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-emerald-500)_18%,transparent)]",
-              )}
+              className={cn(rowSurfaceClassName, props.addonContribution?.cardClassName)}
               onClick={handleClick}
               onDoubleClick={handleDoubleClick}
               onKeyDown={handleKeyDown}

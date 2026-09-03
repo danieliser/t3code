@@ -1,34 +1,37 @@
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
-import { persistSidebarAddon } from "./persist/sidebar";
-import { persistComposerAddon } from "./persist/composer";
 import type { ComposerAddonContext, ComposerAddonContribution } from "./composer";
+import { bundledWebAddons } from "./registry";
 import type { SidebarThreadAddonContribution } from "./sidebar";
 
-const BUNDLED_SIDEBAR_ADDONS = [persistSidebarAddon] as const;
-const BUNDLED_COMPOSER_ADDONS = [persistComposerAddon] as const;
+const composerAddons = bundledWebAddons.flatMap((addon) =>
+  addon.composer === undefined ? [] : [[addon.id, addon.composer] as const],
+);
+const sidebarAddons = bundledWebAddons.flatMap((addon) =>
+  addon.sidebar === undefined ? [] : [addon.sidebar],
+);
 
 export function useComposerAddonContributions(
   context: ComposerAddonContext,
 ): readonly ComposerAddonContribution[] {
-  return persistComposerAddon.useContributions(context);
+  return composerAddons.flatMap(([addonId, addon]) =>
+    addon.useContributions(context).map((contribution) => ({ ...contribution, addonId })),
+  );
 }
 
 export function readComposerAddonSubmissionPayloads(
   targetKey: string,
 ): Readonly<Record<string, unknown>> {
   return Object.fromEntries(
-    BUNDLED_COMPOSER_ADDONS.flatMap((addon) => {
+    composerAddons.flatMap(([addonId, addon]) => {
       const payload = addon.readSubmissionPayload?.(targetKey) ?? null;
-      return payload === null ? [] : [[addon.id, payload]];
+      return payload === null ? [] : [[addonId, payload]];
     }),
   );
 }
 
 export function clearComposerAddonSubmissionPayloads(targetKey: string): void {
-  for (const addon of BUNDLED_COMPOSER_ADDONS) {
-    addon.clearSubmissionPayload?.(targetKey);
-  }
+  for (const [, addon] of composerAddons) addon.clearSubmissionPayload?.(targetKey);
 }
 
 export function commitComposerAddonSubmissionPayloads(input: {
@@ -36,8 +39,8 @@ export function commitComposerAddonSubmissionPayloads(input: {
   readonly threadId: string;
   readonly payloads: Readonly<Record<string, unknown>>;
 }): void {
-  for (const addon of BUNDLED_COMPOSER_ADDONS) {
-    const payload = input.payloads[addon.id];
+  for (const [addonId, addon] of composerAddons) {
+    const payload = input.payloads[addonId];
     if (payload === undefined) continue;
     addon.commitSubmission?.({
       targetKey: input.targetKey,
@@ -48,24 +51,19 @@ export function commitComposerAddonSubmissionPayloads(input: {
   }
 }
 
-export { ComposerAddonSlot, composerAddonBlockingIssue } from "./composer";
-export type { ComposerAddon, ComposerAddonContext, ComposerAddonContribution } from "./composer";
-
-/**
- * Build-time addon registration. Custom Alpha builds bundle their addons here;
- * core sidebar code consumes only the contribution API.
- */
 export function useSidebarAddonThreadContributions(
   threads: readonly EnvironmentThreadShell[],
 ): readonly SidebarThreadAddonContribution[] {
-  const contributionSets = BUNDLED_SIDEBAR_ADDONS.map((addon) =>
-    addon.useThreadContributions(threads),
-  );
-  return contributionSets.flat();
+  return sidebarAddons.flatMap((addon) => addon.useThreadContributions(threads));
 }
 
+export { ComposerAddonSlot, composerAddonBlockingIssue } from "./composer";
+export type { ComposerAddon, ComposerAddonContext, ComposerAddonContribution } from "./composer";
+export { bundledWebAddons, validateWebAddons } from "./registry";
+export type { WebAddon } from "./registry";
 export { groupThreadsWithAddonContributions } from "./sidebar";
 export type {
+  SidebarAddon,
   SidebarThreadAddonContribution,
   SidebarThreadAddonGroup,
   SidebarThreadAddonMember,

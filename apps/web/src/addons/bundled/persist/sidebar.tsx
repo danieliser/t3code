@@ -2,8 +2,8 @@ import { useAtomValue } from "@effect/atom-react";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { useMemo } from "react";
 
-import type { SidebarAddon, SidebarThreadAddonContribution } from "../sidebar";
-import { primaryPersistFleetAtom } from "../../state/server";
+import type { SidebarAddon, SidebarThreadAddonContribution } from "../../sidebar";
+import { primaryPersistFleetAtom } from "../../../state/server";
 import { SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
 import { usePersistBindingsStore } from "./bindingsStore";
 import { persistThreadContributionKind } from "./grouping";
@@ -46,9 +46,12 @@ function usePersistThreadContributions(
           threadId: agent.threadId,
           parentThreadId,
           kind,
-          childCount,
           compact: <SidebarFleetAgentMeta agent={agent} variant="compact" />,
           card: <SidebarFleetAgentMeta agent={agent} variant="card" childCount={childCount} />,
+          cardClassName:
+            kind === "parent"
+              ? "ring-1 ring-fuchsia-500/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-fuchsia-500)_16%,transparent)]"
+              : "ring-1 ring-fuchsia-500/25",
         } satisfies SidebarThreadAddonContribution,
       ];
     });
@@ -56,6 +59,5 @@ function usePersistThreadContributions(
 }
 
 export const persistSidebarAddon: SidebarAddon = {
-  id: "persist",
   useThreadContributions: usePersistThreadContributions,
 };

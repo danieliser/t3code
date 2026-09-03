@@ -15,7 +15,6 @@ export interface ComposerAddonContribution {
 }
 
 export interface ComposerAddon {
-  readonly id: string;
   readonly useContributions: (
     context: ComposerAddonContext,
   ) => readonly ComposerAddonContribution[];
@@ -36,10 +35,6 @@ export function composerAddonBlockingIssue(
   );
 }
 
-/**
- * Generic composer extension point. Core owns placement and layout; bundled
- * addons own their controls and state.
- */
 export function ComposerAddonSlot(props: {
   readonly contributions: readonly ComposerAddonContribution[];
 }) {

@@ -3,27 +3,31 @@ import type { PersistFleetRole } from "@t3tools/contracts";
 import { NetworkIcon } from "lucide-react";
 import { useId, useMemo } from "react";
 
-import { ComposerControl, ComposerControlIcon } from "../../components/chat/ComposerControl";
-import { Checkbox } from "../../components/ui/checkbox";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
+import { ComposerControl, ComposerControlIcon } from "../../../components/chat/ComposerControl";
+import { Checkbox } from "../../../components/ui/checkbox";
+import { Input } from "../../../components/ui/input";
+import { Label } from "../../../components/ui/label";
 import {
   Popover,
   PopoverDescription,
   PopoverPopup,
   PopoverTitle,
   PopoverTrigger,
-} from "../../components/ui/popover";
+} from "../../../components/ui/popover";
 import {
   Select,
   SelectItem,
   SelectPopup,
   SelectTrigger,
   SelectValue,
-} from "../../components/ui/select";
-import { primaryPersistFleetAtom } from "../../state/server";
-import { cn } from "../../lib/utils";
-import type { ComposerAddon, ComposerAddonContext, ComposerAddonContribution } from "../composer";
+} from "../../../components/ui/select";
+import { primaryPersistFleetAtom } from "../../../state/server";
+import { cn } from "../../../lib/utils";
+import type {
+  ComposerAddon,
+  ComposerAddonContext,
+  ComposerAddonContribution,
+} from "../../composer";
 import {
   DEFAULT_PERSIST_NEW_CHAT_CONFIG,
   normalizePersistAgentId,
@@ -271,7 +275,6 @@ function usePersistComposerContributions(
 }
 
 export const persistComposerAddon: ComposerAddon = {
-  id: "persist",
   useContributions: usePersistComposerContributions,
   readSubmissionPayload: readPersistNewChatConfig,
   commitSubmission: ({ threadId, payload }) => commitPersistThreadBinding({ threadId, payload }),
