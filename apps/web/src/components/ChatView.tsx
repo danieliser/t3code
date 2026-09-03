@@ -6350,8 +6350,22 @@ export default function ChatView(props: ChatViewProps) {
       selectedModelSelection: ctxSelectedModelSelection,
       interactionMode: sendInteractionMode,
       interactionModeEnabled: sendInteractionModeEnabled,
-      addonPayloads,
+      addonSubmission,
+      addonBlockingIssue,
     } = sendCtx;
+    const addonReadFailure = addonSubmission.failures[0];
+    if (addonBlockingIssue !== null || addonReadFailure !== undefined) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Complete addon setup before sending",
+          description:
+            addonBlockingIssue ??
+            `Could not read the '${addonReadFailure?.addonId ?? "unknown"}' addon state.`,
+        }),
+      );
+      return;
+    }
     const annotationImageAlreadyAttached =
       directAnnotation?.image !== undefined &&
       sendContextImages.some((image) => image.id === directAnnotation.image?.id);
@@ -6898,12 +6912,22 @@ export default function ChatView(props: ChatViewProps) {
         // snapshot is stale. Uploads may have outlasted a navigation, so only
         // the sending thread's panel clears.
         clearUsageLimitsFor(routeThreadKey);
-        if (isLocalDraftThread && Object.keys(addonPayloads).length > 0) {
-          commitComposerAddonSubmissionPayloads({
+        if (isLocalDraftThread && Object.keys(addonSubmission.payloads).length > 0) {
+          const addonFailures = await commitComposerAddonSubmissionPayloads({
             targetKey: composerTargetKey(composerDraftTarget),
-            threadId: threadIdForSend,
-            payloads: addonPayloads,
+            threadRef: scopeThreadRef(environmentId, threadIdForSend),
+            payloads: addonSubmission.payloads,
           });
+          if (addonFailures.length > 0) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "warning",
+                title: "Chat started, but addon setup was incomplete",
+                description: `Could not finish '${addonFailures[0]?.addonId ?? "unknown"}' addon setup.`,
+                timeout: 0,
+              }),
+            );
+          }
         }
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);

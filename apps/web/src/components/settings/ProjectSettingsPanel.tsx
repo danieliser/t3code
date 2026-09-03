@@ -39,7 +39,8 @@ import * as Cause from "effect/Cause";
 import { ChevronDownIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { useComposerDraftStore } from "../../composerDraftStore";
+import { composerTargetKey, useComposerDraftStore } from "../../composerDraftStore";
+import { clearComposerAddonSubmissionPayloads } from "../../addons";
 import {
   useClientSettings,
   useEnvironmentSettings,
@@ -859,6 +860,7 @@ function ProjectDetail({
         );
         const projectDraftThread = draftStore.getDraftThreadByProjectRef(projectRef);
         if (projectDraftThread) {
+          void clearComposerAddonSubmissionPayloads(composerTargetKey(projectDraftThread.draftId));
           draftStore.clearDraftThread(projectDraftThread.draftId);
         }
         draftStore.clearProjectDraftThreadId(projectRef);

@@ -831,6 +831,7 @@ import {
   composerAddonBlockingIssue,
   readComposerAddonSubmissionPayloads,
   useComposerAddonContributions,
+  type ComposerAddonSubmissionSnapshot,
   type ComposerAddonContext,
 } from "../../addons";
 
@@ -1164,7 +1165,8 @@ export interface ChatComposerHandle {
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
     interactionMode: ProviderInteractionMode;
     interactionModeEnabled: boolean;
-    addonPayloads: Readonly<Record<string, unknown>>;
+    addonSubmission: ComposerAddonSubmissionSnapshot;
+    addonBlockingIssue: string | null;
   };
   /** Validate the fully composed text immediately before a provider turn starts. */
   validateProviderInput: (providerInput: string) => boolean;
@@ -1421,9 +1423,16 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       targetKey: composerTargetKey(composerDraftTarget),
       environmentId,
       routeKind: routeKind === "draft" ? "draft" : "thread",
-      disabled: isConnecting || projectSelectionRequired,
+      disabled: isConnecting || isSendBusy || projectSelectionRequired,
     }),
-    [composerDraftTarget, environmentId, isConnecting, projectSelectionRequired, routeKind],
+    [
+      composerDraftTarget,
+      environmentId,
+      isConnecting,
+      isSendBusy,
+      projectSelectionRequired,
+      routeKind,
+    ],
   );
   const composerAddonContributions = useComposerAddonContributions(composerAddonContext);
   const composerAddonIssue = composerAddonBlockingIssue(composerAddonContributions);
@@ -4670,7 +4679,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedProviderModels,
         interactionMode,
         interactionModeEnabled: planModeUiEnabled,
-        addonPayloads: readComposerAddonSubmissionPayloads(composerTargetKey(composerDraftTarget)),
+        addonSubmission: readComposerAddonSubmissionPayloads(
+          composerTargetKey(composerDraftTarget),
+        ),
+        addonBlockingIssue: composerAddonIssue,
       }),
       validateProviderInput: (providerInput: string) => {
         const validationMessage = getComposerSubmissionValidationMessage({
@@ -4686,6 +4698,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [
       activeThread,
       addComposerAttachments,
+      composerAddonIssue,
       composerDraftTarget,
       composerCursor,
       composerTerminalContexts,
