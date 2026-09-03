@@ -4918,7 +4918,9 @@ export default function Sidebar() {
                                 <ProjectFavicon
                                   environmentId={project.environmentId}
                                   cwd={project.workspaceRoot}
+                                  projectName={project.displayName}
                                   faviconPath={project.faviconPath}
+                                  projectIcon={project.projectIcon}
                                   className="size-4 shrink-0 opacity-70"
                                 />
                                 <span className="min-w-0 flex-1 truncate text-sm">
