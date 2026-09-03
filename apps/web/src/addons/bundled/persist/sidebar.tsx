@@ -6,7 +6,7 @@ import { useMemo } from "react";
 import type { SidebarAddon, SidebarThreadAddonContributionInput } from "../../sidebar";
 import { primaryPersistFleetAtom } from "../../../state/server";
 import { usePrimaryEnvironmentId } from "../../../state/environments";
-import { SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
+import { SidebarFleetAgentHoverDetail, SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
 import { usePersistBindingsStore } from "./bindingsStore";
 import { persistThreadContributionId, persistThreadContributionKind } from "./grouping";
 import { mergePersistBindings } from "./mergeFleet";
@@ -62,10 +62,11 @@ function usePersistThreadContributions(
           kind,
           compact: <SidebarFleetAgentMeta agent={agent} variant="compact" />,
           card: <SidebarFleetAgentMeta agent={agent} variant="card" childCount={childCount} />,
+          hoverDetail: <SidebarFleetAgentHoverDetail agent={agent} childCount={childCount} />,
           cardClassName:
             kind === "parent"
-              ? "ring-1 ring-fuchsia-500/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-fuchsia-500)_16%,transparent)]"
-              : "ring-1 ring-fuchsia-500/25",
+              ? "ring-1 ring-[#76e7bd]/65 shadow-[0_0_0_1px_rgba(69,196,207,0.18)]"
+              : "ring-1 ring-[#76e7bd]/35",
         } satisfies SidebarThreadAddonContributionInput,
       ];
     });

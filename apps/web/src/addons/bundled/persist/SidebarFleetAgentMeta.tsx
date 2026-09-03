@@ -1,6 +1,7 @@
 import type { PersistFleetAgent, PersistFleetRole } from "@t3tools/contracts";
-import { CircleDotIcon, NetworkIcon } from "lucide-react";
+import { CircleDotIcon } from "lucide-react";
 
+import jarvisAvatarUrl from "../../../assets/jarvis-avatar.png";
 import { cn } from "../../../lib/utils";
 
 const ROLE_LABELS: Readonly<Record<PersistFleetRole, string>> = {
@@ -14,7 +15,7 @@ const ROLE_LABELS: Readonly<Record<PersistFleetRole, string>> = {
 const WORK_STATE = {
   active: {
     label: "Running",
-    className: "text-sky-600 dark:text-sky-400",
+    className: "text-teal-700 dark:text-[#76e7bd]",
   },
   idle_waiting: {
     label: "Waiting",
@@ -29,6 +30,51 @@ const WORK_STATE = {
     className: "text-muted-foreground/70",
   },
 } as const;
+
+const AGENT_NAME_ACRONYMS: Readonly<Record<string, string>> = {
+  ai: "AI",
+  api: "API",
+  mcp: "MCP",
+  os: "OS",
+  persist: "PERSIST",
+  qa: "QA",
+  t3: "T3",
+  ui: "UI",
+  ux: "UX",
+};
+
+function humanizeAgentId(agentId: string): string {
+  return agentId
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase();
+      return AGENT_NAME_ACRONYMS[lower] ?? `${part.charAt(0).toUpperCase()}${part.slice(1)}`;
+    })
+    .join(" ");
+}
+
+export function persistAgentDisplayName(agent: PersistFleetAgent): string {
+  const displayName = agent.displayName.trim();
+  return displayName.toLowerCase() === agent.agentId.trim().toLowerCase()
+    ? humanizeAgentId(agent.agentId)
+    : displayName;
+}
+
+function roleLabel(agent: PersistFleetAgent): string {
+  return agent.role === null ? "Unclassified agent" : ROLE_LABELS[agent.role];
+}
+
+function JarvisAvatar(props: { readonly className: string }) {
+  return (
+    <img
+      aria-hidden
+      alt=""
+      src={jarvisAvatarUrl}
+      className={cn("shrink-0 rounded-full bg-[#0b1512] object-cover", props.className)}
+    />
+  );
+}
 
 function FleetWorkState(props: { readonly agent: PersistFleetAgent }) {
   const workState = WORK_STATE[props.agent.work.state];
@@ -106,8 +152,8 @@ export function SidebarFleetAgentMeta(props: {
   readonly variant: "card" | "compact";
   readonly childCount?: number;
 }) {
-  const roleLabel =
-    props.agent.role === null ? "Unclassified agent" : ROLE_LABELS[props.agent.role];
+  const displayName = persistAgentDisplayName(props.agent);
+  const agentRoleLabel = roleLabel(props.agent);
   const claimedItems = props.agent.session.claimedItems;
   const lapsedClaims = props.agent.session.lapsedClaims;
   const completedItems = props.agent.session.completedItems;
@@ -117,16 +163,16 @@ export function SidebarFleetAgentMeta(props: {
       <span
         data-testid="sidebar-fleet-agent-meta-compact"
         className="inline-flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-[11px] text-muted-foreground"
-        aria-label={`${props.agent.displayName}, ${roleLabel}`}
+        aria-label={`${displayName}, ${agentRoleLabel}`}
       >
-        <NetworkIcon aria-hidden className="size-3 text-fuchsia-500" />
+        <JarvisAvatar className="size-4" />
         <span
           data-testid="sidebar-fleet-agent-name"
           className="max-w-28 truncate font-medium text-foreground/80"
         >
-          {props.agent.displayName}
+          {displayName}
         </span>
-        <span className="hidden shrink-0 min-[360px]:inline">{roleLabel}</span>
+        <span className="hidden shrink-0 min-[360px]:inline">{agentRoleLabel}</span>
         <BoardLinks agent={props.agent} />
         <FleetPresenceState agent={props.agent} />
         {claimedItems !== null ? <span>{claimedItems} claimed</span> : null}
@@ -141,17 +187,15 @@ export function SidebarFleetAgentMeta(props: {
       data-testid="sidebar-fleet-agent-meta-card"
       className="@container/persist-meta flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-secondary-label"
     >
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-fuchsia-500/12 px-1.5 py-0.5 font-semibold text-[10px] text-fuchsia-700 uppercase tracking-wide dark:text-fuchsia-300">
-        <NetworkIcon aria-hidden className="size-2.5" />
+      <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#0b1512] py-0.5 pr-2 pl-1 font-semibold text-[10px] text-[#76e7bd] uppercase tracking-wide ring-1 ring-[#76e7bd]/35">
+        <JarvisAvatar className="size-3.5" />
         PERSIST
       </span>
-      <span className="min-w-10 flex-1 truncate font-medium text-foreground/80">
-        {props.agent.displayName}
-      </span>
+      <span className="min-w-10 flex-1 truncate font-medium text-foreground/80">{displayName}</span>
       <span aria-hidden className="hidden @min-[270px]/persist-meta:inline">
         ·
       </span>
-      <span className="hidden shrink-0 @min-[270px]/persist-meta:inline">{roleLabel}</span>
+      <span className="hidden shrink-0 @min-[270px]/persist-meta:inline">{agentRoleLabel}</span>
       {props.childCount !== undefined && props.childCount > 0 ? (
         <span className="hidden shrink-0 @min-[440px]/persist-meta:inline">
           {props.childCount} agents
@@ -178,5 +222,91 @@ export function SidebarFleetAgentMeta(props: {
       ) : null}
       <FleetWorkState agent={props.agent} />
     </span>
+  );
+}
+
+function metric(value: number | null, fallback = "Unknown"): string {
+  return value === null ? fallback : String(value);
+}
+
+export function SidebarFleetAgentHoverDetail(props: {
+  readonly agent: PersistFleetAgent;
+  readonly childCount?: number;
+}) {
+  const displayName = persistAgentDisplayName(props.agent);
+  const work = WORK_STATE[props.agent.work.state];
+  const lifecycle = props.agent.lifecycle ?? "unknown";
+
+  return (
+    <div data-testid="sidebar-fleet-agent-hover-detail" className="min-w-64 space-y-2 text-xs">
+      <div className="flex min-w-0 items-center gap-2">
+        <JarvisAvatar className="size-8 ring-1 ring-[#76e7bd]/40" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-semibold text-foreground">{displayName}</div>
+          <div className="truncate font-mono text-[10px] text-muted-foreground">
+            {props.agent.agentId}
+          </div>
+        </div>
+        <span className="rounded-full bg-[#0b1512] px-2 py-1 font-semibold text-[10px] text-[#76e7bd] uppercase tracking-wide ring-1 ring-[#76e7bd]/30">
+          PERSIST
+        </span>
+      </div>
+
+      <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-muted-foreground">
+        <span>Role</span>
+        <span className="text-foreground/80">{roleLabel(props.agent)}</span>
+        <span>Project</span>
+        <span className="text-foreground/80">{props.agent.projectKey ?? "Unknown"}</span>
+        <span>Lifecycle</span>
+        <span className="capitalize text-foreground/80">{lifecycle}</span>
+        <span>Presence</span>
+        <span className="text-foreground/80">
+          {props.agent.mailbox.state === "never_seen"
+            ? "Never seen"
+            : props.agent.mailbox.state.charAt(0).toUpperCase() +
+              props.agent.mailbox.state.slice(1)}
+        </span>
+        <span>Work</span>
+        <span className={work.className}>{work.label}</span>
+        {props.childCount !== undefined && props.childCount > 0 ? (
+          <>
+            <span>Managed team</span>
+            <span className="text-foreground/80">{props.childCount} agents</span>
+          </>
+        ) : null}
+      </div>
+
+      <div className="grid grid-cols-3 gap-1 rounded-md bg-[#0b1512]/95 p-2 text-center ring-1 ring-[#76e7bd]/20">
+        <div>
+          <div className="font-semibold text-[#76e7bd]">{metric(props.agent.work.activeTasks)}</div>
+          <div className="text-[10px] text-[#9adbc8]">running</div>
+        </div>
+        <div>
+          <div className="font-semibold text-[#76e7bd]">
+            {metric(props.agent.work.waitingTasks)}
+          </div>
+          <div className="text-[10px] text-[#9adbc8]">waiting</div>
+        </div>
+        <div>
+          <div className="font-semibold text-[#76e7bd]">
+            {metric(props.agent.session.completedItems)}
+          </div>
+          <div className="text-[10px] text-[#9adbc8]">done</div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground">
+        <span>{metric(props.agent.session.claimedItems)} claimed</span>
+        <span>{metric(props.agent.session.lapsedClaims)} lapsed</span>
+        <span>{metric(props.agent.work.blockedTasks)} blocked</span>
+      </div>
+
+      {props.agent.boards.length > 0 ? (
+        <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+          <span className="shrink-0">Boards</span>
+          <BoardLinks agent={props.agent} />
+        </div>
+      ) : null}
+    </div>
   );
 }

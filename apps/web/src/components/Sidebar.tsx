@@ -335,6 +335,7 @@ function SidebarThreadTooltip({
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
+  addonPresentation = null,
 }: {
   thread: SidebarThreadSummary;
   projectTitle: string | null;
@@ -359,8 +360,12 @@ function SidebarThreadTooltip({
   } | null;
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
+  addonPresentation?: SidebarThreadAddonPresentation | null;
 }) {
   const driverKind = providerEntry?.driverKind ?? null;
+  const hasAddonHoverDetails =
+    addonPresentation?.contributions.some((contribution) => contribution.hoverDetail != null) ===
+    true;
   return (
     <TooltipPopup
       side="right"
@@ -472,6 +477,20 @@ function SidebarThreadTooltip({
             </div>
           ) : null}
         </div>
+        {hasAddonHoverDetails ? (
+          <div
+            data-testid="sidebar-addon-hover-details"
+            className="border-sidebar-border/70 border-t pt-2"
+          >
+            {addonPresentation?.contributions.map((contribution) =>
+              contribution.hoverDetail == null ? null : (
+                <Fragment key={`${contribution.addonId}:${contribution.contributionId}`}>
+                  {contribution.hoverDetail}
+                </Fragment>
+              ),
+            )}
+          </div>
+        ) : null}
       </div>
     </TooltipPopup>
   );
@@ -1284,6 +1303,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
+      addonPresentation={props.addonPresentation}
     />
   );
 

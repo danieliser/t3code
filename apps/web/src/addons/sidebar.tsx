@@ -11,6 +11,8 @@ export interface SidebarThreadAddonContributionInput {
   readonly kind: "parent" | "child" | "standalone";
   readonly compact: ReactNode;
   readonly card: ReactNode;
+  /** Optional addon-owned detail rendered inside the core thread hover card. */
+  readonly hoverDetail?: ReactNode;
   readonly cardClassName?: string;
 }
 
