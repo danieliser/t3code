@@ -1,21 +1,34 @@
 import { useAtomValue } from "@effect/atom-react";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 import { useMemo } from "react";
 
-import type { SidebarAddon, SidebarThreadAddonContribution } from "../../sidebar";
+import type { SidebarAddon, SidebarThreadAddonContributionInput } from "../../sidebar";
 import { primaryPersistFleetAtom } from "../../../state/server";
+import { usePrimaryEnvironmentId } from "../../../state/environments";
 import { SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
 import { usePersistBindingsStore } from "./bindingsStore";
 import { persistThreadContributionKind } from "./grouping";
 import { mergePersistBindings } from "./mergeFleet";
 
 function usePersistThreadContributions(
-  _threads: readonly EnvironmentThreadShell[],
-): readonly SidebarThreadAddonContribution[] {
+  threads: readonly EnvironmentThreadShell[],
+): readonly SidebarThreadAddonContributionInput[] {
   const snapshot = useAtomValue(primaryPersistFleetAtom);
+  const primaryEnvironmentId = usePrimaryEnvironmentId();
   const bindingsByThreadId = usePersistBindingsStore((state) => state.byThreadId);
   return useMemo(() => {
-    const bindings = Object.values(bindingsByThreadId);
+    if (primaryEnvironmentId === null) return [];
+    const threadIds = new Set(
+      threads
+        .filter((thread) => thread.environmentId === primaryEnvironmentId)
+        .map((thread) => thread.id),
+    );
+    const bindings = Object.values(bindingsByThreadId).filter(
+      (binding) =>
+        (binding.environmentId === undefined || binding.environmentId === primaryEnvironmentId) &&
+        threadIds.has(binding.threadId),
+    );
     const agents = mergePersistBindings(snapshot?.agents ?? [], bindings);
     const byAgentId = new Map(agents.map((agent) => [agent.agentId, agent]));
     const threadIdByAgentId = new Map(
@@ -23,7 +36,7 @@ function usePersistThreadContributions(
     );
 
     return agents.flatMap((agent) => {
-      if (agent.threadId === null) return [];
+      if (agent.threadId === null || !threadIds.has(agent.threadId)) return [];
       const parent =
         agent.parentAgentId === null ? null : (byAgentId.get(agent.parentAgentId) ?? null);
       const parentThreadId =
@@ -42,9 +55,10 @@ function usePersistThreadContributions(
       });
       return [
         {
-          addonId: "persist",
-          threadId: agent.threadId,
-          parentThreadId,
+          contributionId: "fleet-status",
+          threadRef: scopeThreadRef(primaryEnvironmentId, agent.threadId),
+          parentThreadRef:
+            parentThreadId === null ? null : scopeThreadRef(primaryEnvironmentId, parentThreadId),
           kind,
           compact: <SidebarFleetAgentMeta agent={agent} variant="compact" />,
           card: <SidebarFleetAgentMeta agent={agent} variant="card" childCount={childCount} />,
@@ -52,10 +66,10 @@ function usePersistThreadContributions(
             kind === "parent"
               ? "ring-1 ring-fuchsia-500/50 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-fuchsia-500)_16%,transparent)]"
               : "ring-1 ring-fuchsia-500/25",
-        } satisfies SidebarThreadAddonContribution,
+        } satisfies SidebarThreadAddonContributionInput,
       ];
     });
-  }, [bindingsByThreadId, snapshot]);
+  }, [bindingsByThreadId, primaryEnvironmentId, snapshot, threads]);
 }
 
 export const persistSidebarAddon: SidebarAddon = {

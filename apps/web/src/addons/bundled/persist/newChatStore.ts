@@ -2,9 +2,9 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "../../../lib/storage";
+import type { ComposerAddonSubmissionPayload } from "../../composer";
 import {
   DEFAULT_PERSIST_NEW_CHAT_CONFIG,
-  type PersistNewChatConfig,
   type PersistNewChatDraftConfig,
   persistNewChatConfigIssue,
   resolvePersistNewChatConfig,
@@ -48,12 +48,36 @@ export const usePersistNewChatStore = create<PersistNewChatStoreState>()(
   ),
 );
 
-export function readPersistNewChatConfig(targetKey: string): PersistNewChatConfig | null {
-  const draft = usePersistNewChatStore.getState().byTargetKey[targetKey];
-  if (!draft?.enabled || persistNewChatConfigIssue(draft) !== null) return null;
-  return resolvePersistNewChatConfig(draft);
+function persistNewChatRevision(draft: PersistNewChatDraftConfig): string {
+  return JSON.stringify({
+    enabled: draft.enabled,
+    agentId: draft.agentId,
+    displayName: draft.displayName,
+    role: draft.role,
+    parentAgentId: draft.parentAgentId,
+    boardSlugsText: draft.boardSlugsText,
+  });
 }
 
-export function clearPersistNewChatConfig(targetKey: string): void {
-  usePersistNewChatStore.getState().clearConfig(targetKey);
+export function readPersistNewChatConfig(targetKey: string): ComposerAddonSubmissionPayload | null {
+  const draft = usePersistNewChatStore.getState().byTargetKey[targetKey];
+  if (!draft?.enabled || persistNewChatConfigIssue(draft) !== null) return null;
+  return {
+    revision: persistNewChatRevision(draft),
+    payload: resolvePersistNewChatConfig(draft),
+  };
+}
+
+export function clearPersistNewChatConfig(input: {
+  readonly targetKey: string;
+  readonly expectedRevision: string | null;
+  readonly reason: "discarded" | "submitted";
+}): void {
+  const state = usePersistNewChatStore.getState();
+  const current = state.byTargetKey[input.targetKey];
+  if (current === undefined) return;
+  if (input.reason === "submitted" && input.expectedRevision !== persistNewChatRevision(current)) {
+    return;
+  }
+  state.clearConfig(input.targetKey);
 }

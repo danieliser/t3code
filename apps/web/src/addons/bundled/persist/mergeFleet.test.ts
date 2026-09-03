@@ -11,7 +11,7 @@ const binding: PersistThreadBinding = {
   role: "orchestrator",
   parentAgentId: null,
   boardSlugs: ["popup-maker-growth"],
-  threadId: "thread-local",
+  threadId: ThreadId.make("thread-local"),
 };
 
 describe("mergePersistBindings", () => {

@@ -26,7 +26,7 @@ import { cn } from "../../../lib/utils";
 import type {
   ComposerAddon,
   ComposerAddonContext,
-  ComposerAddonContribution,
+  ComposerAddonContributionInput,
 } from "../../composer";
 import {
   DEFAULT_PERSIST_NEW_CHAT_CONFIG,
@@ -243,7 +243,7 @@ function PersistNewChatControl(props: { readonly context: ComposerAddonContext }
 
 function usePersistComposerContributions(
   context: ComposerAddonContext,
-): readonly ComposerAddonContribution[] {
+): readonly ComposerAddonContributionInput[] {
   const config = usePersistNewChatStore(
     (state) => state.byTargetKey[context.targetKey] ?? DEFAULT_PERSIST_NEW_CHAT_CONFIG,
   );
@@ -264,7 +264,7 @@ function usePersistComposerContributions(
       context.routeKind === "draft"
         ? [
             {
-              addonId: "persist",
+              contributionId: "agent-config",
               control: <PersistNewChatControl context={context} />,
               blockingIssue,
             },
@@ -277,6 +277,6 @@ function usePersistComposerContributions(
 export const persistComposerAddon: ComposerAddon = {
   useContributions: usePersistComposerContributions,
   readSubmissionPayload: readPersistNewChatConfig,
-  commitSubmission: ({ threadId, payload }) => commitPersistThreadBinding({ threadId, payload }),
+  commitSubmission: ({ threadRef, payload }) => commitPersistThreadBinding({ threadRef, payload }),
   clearSubmissionPayload: clearPersistNewChatConfig,
 };

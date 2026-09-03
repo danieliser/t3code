@@ -1,4 +1,10 @@
-import type { PersistFleetRole } from "@t3tools/contracts";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type {
+  EnvironmentId,
+  PersistFleetRole,
+  ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -6,7 +12,9 @@ import { resolveStorage } from "../../../lib/storage";
 import type { PersistNewChatConfig } from "./config";
 
 export interface PersistThreadBinding extends PersistNewChatConfig {
-  readonly threadId: string;
+  /** Undefined only for bindings written by the v1 unscoped store. */
+  readonly environmentId?: EnvironmentId;
+  readonly threadId: ThreadId;
 }
 
 interface PersistBindingsState {
@@ -60,16 +68,20 @@ export const usePersistBindingsStore = create<PersistBindingsState>()(
       byThreadId: {},
       bind: (binding) =>
         set((state) => {
+          const bindingKey =
+            binding.environmentId === undefined
+              ? binding.threadId
+              : scopedThreadKey(scopeThreadRef(binding.environmentId, binding.threadId));
           const withoutDuplicateAgent = Object.fromEntries(
             Object.entries(state.byThreadId).filter(
-              ([threadId, current]) =>
-                threadId === binding.threadId || current.agentId !== binding.agentId,
+              ([threadKey, current]) =>
+                threadKey === bindingKey || current.agentId !== binding.agentId,
             ),
           );
           return {
             byThreadId: {
               ...withoutDuplicateAgent,
-              [binding.threadId]: binding,
+              [bindingKey]: binding,
             },
           };
         }),
@@ -86,10 +98,14 @@ export const usePersistBindingsStore = create<PersistBindingsState>()(
 );
 
 export function commitPersistThreadBinding(input: {
-  readonly threadId: string;
+  readonly threadRef: ScopedThreadRef;
   readonly payload: unknown;
 }): void {
   const config = decodeBindingPayload(input.payload);
   if (config === null) return;
-  usePersistBindingsStore.getState().bind({ ...config, threadId: input.threadId });
+  usePersistBindingsStore.getState().bind({
+    ...config,
+    environmentId: input.threadRef.environmentId,
+    threadId: input.threadRef.threadId,
+  });
 }
