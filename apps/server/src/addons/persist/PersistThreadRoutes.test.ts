@@ -1,4 +1,10 @@
-import { EventId, ThreadId, type OrchestrationThreadActivity } from "@t3tools/contracts";
+import {
+  EventId,
+  MessageId,
+  ThreadId,
+  type OrchestrationMessage,
+  type OrchestrationThreadActivity,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { discoverPersistThreadRoutes } from "./PersistThreadRoutes.ts";
@@ -16,6 +22,21 @@ const activity = (
   payload,
   turnId: null,
   createdAt: createdAt as OrchestrationThreadActivity["createdAt"],
+});
+
+const message = (
+  id: string,
+  createdAt: string,
+  text: string,
+  role: OrchestrationMessage["role"] = "user",
+): OrchestrationMessage => ({
+  id: MessageId.make(id),
+  role,
+  text,
+  turnId: null,
+  streaming: false,
+  createdAt: createdAt as OrchestrationMessage["createdAt"],
+  updatedAt: createdAt as OrchestrationMessage["updatedAt"],
 });
 
 describe("discoverPersistThreadRoutes", () => {
@@ -111,5 +132,75 @@ describe("discoverPersistThreadRoutes", () => {
     );
 
     expect([...routes]).toEqual([["fleet-agent", ThreadId.make("claude-thread")]]);
+  });
+
+  it("resolves inbound-only role chats from canonical PERSIST pages", () => {
+    const routes = discoverPersistThreadRoutes(
+      [
+        {
+          id: ThreadId.make("persist-role-chat"),
+          activities: [],
+          messages: [
+            message(
+              "message-1",
+              "2026-09-03T09:04:51.814Z",
+              [
+                "PERSIST-Page: 2",
+                'From-Agent: "review-agent"',
+                'To-Mailbox: "t3-developer"',
+                'Topic: "review-ready"',
+                "Channel: null",
+                'Message-ID: "559"',
+                'Sent-At: "2026-09-03T09:04:43.000Z"',
+                'Body-Format: "untrusted-json-string"',
+                "",
+                '"Review is ready."',
+              ].join("\n"),
+            ),
+          ],
+        },
+      ],
+      new Set(["t3-developer"]),
+    );
+
+    expect(routes.get("t3-developer")).toBe(ThreadId.make("persist-role-chat"));
+  });
+
+  it("rejects page-like prose, assistant messages, and unknown mailboxes", () => {
+    const canonicalPage = (mailbox: string) =>
+      [
+        "PERSIST-Page: 2",
+        'From-Agent: "review-agent"',
+        `To-Mailbox: "${mailbox}"`,
+        'Message-ID: "559"',
+        'Sent-At: "2026-09-03T09:04:43.000Z"',
+        "",
+        '"Review is ready."',
+      ].join("\n");
+    const routes = discoverPersistThreadRoutes(
+      [
+        {
+          id: ThreadId.make("not-a-route"),
+          activities: [],
+          messages: [
+            message(
+              "message-1",
+              "2026-09-03T09:04:51.814Z",
+              canonicalPage("t3-developer"),
+              "assistant",
+            ),
+            message(
+              "message-2",
+              "2026-09-03T09:04:52.814Z",
+              'Someone mentioned To-Mailbox: "t3-developer" in prose.',
+            ),
+            message("message-3", "2026-09-03T09:04:53.814Z", canonicalPage("unknown-agent")),
+          ],
+        },
+      ],
+      new Set(["t3-developer"]),
+    );
+
+    expect(routes.size).toBe(0);
   });
 });
