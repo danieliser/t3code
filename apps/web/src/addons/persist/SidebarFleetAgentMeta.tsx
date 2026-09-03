@@ -35,7 +35,10 @@ function FleetWorkState(props: { readonly agent: PersistFleetAgent }) {
   return (
     <span
       role="status"
-      className={cn("inline-flex shrink-0 items-center gap-1 font-medium", workState.className)}
+      className={cn(
+        "hidden shrink-0 items-center gap-1 font-medium @min-[360px]/persist-meta:inline-flex",
+        workState.className,
+      )}
     >
       <CircleDotIcon aria-hidden className="size-3" />
       {workState.label}
@@ -51,13 +54,21 @@ function FleetPresenceState(props: { readonly agent: PersistFleetAgent }) {
   return (
     <span
       className={cn(
-        "shrink-0",
+        "inline-flex shrink-0 items-center gap-1",
         props.agent.mailbox.state === "online"
           ? "text-emerald-700 dark:text-emerald-300"
           : "text-muted-foreground",
       )}
     >
-      {label}
+      <span
+        aria-hidden
+        className={cn(
+          "size-1.5 rounded-full bg-current",
+          props.agent.mailbox.state !== "online" && "opacity-55",
+        )}
+      />
+      <span className="hidden @min-[220px]/persist-meta:inline">{label}</span>
+      <span className="sr-only @min-[220px]/persist-meta:hidden">{label}</span>
     </span>
   );
 }
@@ -122,29 +133,43 @@ export function SidebarFleetAgentMeta(props: {
   return (
     <span
       data-testid="sidebar-fleet-agent-meta-card"
-      className="flex min-w-0 flex-1 items-center gap-1.5 text-xs text-secondary-label"
+      className="@container/persist-meta flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs text-secondary-label"
     >
       <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-fuchsia-500/12 px-1.5 py-0.5 font-semibold text-[10px] text-fuchsia-700 uppercase tracking-wide dark:text-fuchsia-300">
         <NetworkIcon aria-hidden className="size-2.5" />
         PERSIST
       </span>
-      <span className="min-w-0 truncate font-medium text-foreground/80">
+      <span className="min-w-10 flex-1 truncate font-medium text-foreground/80">
         {props.agent.displayName}
       </span>
-      <span aria-hidden>·</span>
-      <span className="shrink-0">{roleLabel}</span>
+      <span aria-hidden className="hidden @min-[270px]/persist-meta:inline">
+        ·
+      </span>
+      <span className="hidden shrink-0 @min-[270px]/persist-meta:inline">{roleLabel}</span>
       {props.childCount !== undefined && props.childCount > 0 ? (
-        <span className="shrink-0">{props.childCount} agents</span>
+        <span className="hidden shrink-0 @min-[440px]/persist-meta:inline">
+          {props.childCount} agents
+        </span>
       ) : null}
-      <span className="min-w-0 flex-1 truncate">
+      <span className="hidden min-w-0 max-w-28 truncate @min-[560px]/persist-meta:inline">
         <BoardLinks agent={props.agent} />
       </span>
       <FleetPresenceState agent={props.agent} />
-      {claimedItems !== null ? <span className="shrink-0">{claimedItems} claimed</span> : null}
-      {lapsedClaims !== null && lapsedClaims > 0 ? (
-        <span className="shrink-0">{lapsedClaims} lapsed</span>
+      {claimedItems !== null ? (
+        <span className="hidden shrink-0 @min-[440px]/persist-meta:inline">
+          {claimedItems} claimed
+        </span>
       ) : null}
-      {completedItems !== null ? <span className="shrink-0">{completedItems} done</span> : null}
+      {lapsedClaims !== null && lapsedClaims > 0 ? (
+        <span className="hidden shrink-0 @min-[650px]/persist-meta:inline">
+          {lapsedClaims} lapsed
+        </span>
+      ) : null}
+      {completedItems !== null ? (
+        <span className="hidden shrink-0 @min-[500px]/persist-meta:inline">
+          {completedItems} done
+        </span>
+      ) : null}
       <FleetWorkState agent={props.agent} />
     </span>
   );

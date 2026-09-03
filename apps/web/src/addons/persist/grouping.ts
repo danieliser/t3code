@@ -16,6 +16,22 @@ export interface PersistFleetAgentGroup {
   readonly children: readonly PersistFleetAgent[];
 }
 
+export function persistThreadContributionKind(input: {
+  readonly agent: PersistFleetAgent;
+  readonly hasParentThread: boolean;
+  readonly childCount: number;
+}): "parent" | "child" | "standalone" {
+  if (input.hasParentThread) return "child";
+  if (
+    input.childCount > 0 ||
+    input.agent.role === "commander" ||
+    input.agent.role === "orchestrator"
+  ) {
+    return "parent";
+  }
+  return "standalone";
+}
+
 export function groupPersistFleetAgents(
   agents: readonly PersistFleetAgent[],
 ): readonly PersistFleetAgentGroup[] {

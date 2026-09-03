@@ -6,6 +6,7 @@ import type { SidebarAddon, SidebarThreadAddonContribution } from "../sidebar";
 import { primaryPersistFleetAtom } from "../../state/server";
 import { SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
 import { usePersistBindingsStore } from "./bindingsStore";
+import { persistThreadContributionKind } from "./grouping";
 import { mergePersistBindings } from "./mergeFleet";
 
 function usePersistThreadContributions(
@@ -34,7 +35,11 @@ function usePersistThreadContributions(
                 candidate.parentAgentId === agent.agentId && candidate.threadId !== null,
             ).length
           : 0;
-      const kind = parentThreadId !== null ? "child" : childCount > 0 ? "parent" : "standalone";
+      const kind = persistThreadContributionKind({
+        agent,
+        hasParentThread: parentThreadId !== null,
+        childCount,
+      });
       return [
         {
           addonId: "persist",

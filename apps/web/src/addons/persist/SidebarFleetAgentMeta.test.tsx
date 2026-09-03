@@ -54,6 +54,8 @@ describe("SidebarFleetAgentMeta", () => {
     expect(markup).toContain("3 done");
     expect(markup).toContain('href="http://127.0.0.1:8803/boards/persistence"');
     expect(markup).toContain("PERSIST");
+    expect(markup).toContain("overflow-hidden");
+    expect(markup).toContain("@container/persist-meta");
   });
 
   it("renders unknown literally when PERSIST has no trustworthy work signal", () => {

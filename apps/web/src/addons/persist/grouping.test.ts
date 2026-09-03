@@ -1,7 +1,11 @@
 import { ThreadId, type PersistFleetAgent } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
-import { groupPersistFleetAgents, groupPersistFleetThreads } from "./grouping";
+import {
+  groupPersistFleetAgents,
+  groupPersistFleetThreads,
+  persistThreadContributionKind,
+} from "./grouping";
 
 type TestThread = {
   readonly id: string;
@@ -143,5 +147,27 @@ describe("groupPersistFleetThreads", () => {
         children: [],
       },
     ]);
+  });
+});
+
+describe("persistThreadContributionKind", () => {
+  it("keeps an explicitly typed orchestrator visually distinct before children arrive", () => {
+    expect(
+      persistThreadContributionKind({
+        agent: agent({ agentId: "orchestrator", role: "orchestrator" }),
+        hasParentThread: false,
+        childCount: 0,
+      }),
+    ).toBe("parent");
+  });
+
+  it("prefers explicit parentage over the agent role", () => {
+    expect(
+      persistThreadContributionKind({
+        agent: agent({ agentId: "worker", role: "product" }),
+        hasParentThread: true,
+        childCount: 0,
+      }),
+    ).toBe("child");
   });
 });
