@@ -18,6 +18,7 @@ function TooltipPopup({
   sideOffset = 4,
   side = "top",
   variant = "default",
+  interactive = false,
   anchor,
   children,
   ...props
@@ -26,6 +27,7 @@ function TooltipPopup({
   side?: TooltipPrimitive.Positioner.Props["side"];
   sideOffset?: TooltipPrimitive.Positioner.Props["sideOffset"];
   variant?: "default" | "glass";
+  interactive?: boolean;
   anchor?: TooltipPrimitive.Positioner.Props["anchor"];
 }) {
   return (
@@ -33,7 +35,10 @@ function TooltipPopup({
       <TooltipPrimitive.Positioner
         align={align}
         anchor={anchor}
-        className="pointer-events-none z-[140] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none"
+        className={cn(
+          "z-[140] h-(--positioner-height) w-(--positioner-width) max-w-(--available-width) transition-[top,left,right,bottom,transform] data-instant:transition-none",
+          interactive ? "pointer-events-auto" : "pointer-events-none",
+        )}
         data-slot="tooltip-positioner"
         side={side}
         sideOffset={sideOffset}

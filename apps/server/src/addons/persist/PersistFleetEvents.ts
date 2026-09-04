@@ -6,6 +6,7 @@ import * as Stream from "effect/Stream";
 import WebSocket from "ws";
 
 import { resolvePersistToken } from "./PersistFleetClient.ts";
+import { isPersistRouteActivity, persistMailboxFromPage } from "./PersistThreadRoutes.ts";
 
 const DEFAULT_DAEMON_URL = "http://127.0.0.1:8803";
 const RECONNECT_DELAY_MS = 1_000;
@@ -28,6 +29,30 @@ export function isPersistFleetInvalidationMessage(value: unknown): boolean {
     (message.type === "event" || message.type === "subscribed") &&
     message.channel === PERSIST_FLEET_CHANNEL
   );
+}
+
+/**
+ * T3's route projection is derived from its own thread events, so PERSIST's
+ * fleet channel alone cannot make a newly established route visible in real
+ * time. Invalidate for the small set of durable thread events that can add or
+ * move route evidence; streaming deltas deliberately do not reach this path.
+ */
+export function isPersistFleetRouteInvalidationEvent(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const event = value as Record<string, unknown>;
+  const payload =
+    typeof event.payload === "object" && event.payload !== null && !Array.isArray(event.payload)
+      ? (event.payload as Record<string, unknown>)
+      : null;
+  if (payload === null) return false;
+  if (event.type === "thread.activity-appended") {
+    return isPersistRouteActivity(payload.activity);
+  }
+  if (event.type === "thread.message-sent") {
+    if (payload.role !== "user" || typeof payload.text !== "string") return false;
+    return persistMailboxFromPage({ role: payload.role, text: payload.text }) !== null;
+  }
+  return false;
 }
 
 /**

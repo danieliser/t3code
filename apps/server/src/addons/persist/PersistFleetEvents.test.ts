@@ -2,6 +2,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   isPersistFleetInvalidationMessage,
+  isPersistFleetRouteInvalidationEvent,
   PERSIST_FLEET_CHANNEL,
   persistWebSocketUrl,
 } from "./PersistFleetEvents.ts";
@@ -38,5 +39,63 @@ describe("isPersistFleetInvalidationMessage", () => {
     ).toBe(false);
     expect(isPersistFleetInvalidationMessage({ type: "pong" })).toBe(false);
     expect(isPersistFleetInvalidationMessage("event")).toBe(false);
+  });
+});
+
+describe("isPersistFleetRouteInvalidationEvent", () => {
+  it("accepts only durable thread events that can change route evidence", () => {
+    expect(
+      isPersistFleetRouteInvalidationEvent({
+        type: "thread.activity-appended",
+        payload: {
+          activity: {
+            kind: "item.completed",
+            payload: {
+              data: {
+                item: {
+                  type: "mcpToolCall",
+                  status: "completed",
+                  server: "persist",
+                  tool: "mailbox_send",
+                  arguments: { from: "fleet-agent" },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPersistFleetRouteInvalidationEvent({
+        type: "thread.message-sent",
+        payload: {
+          role: "user",
+          text: [
+            "PERSIST-Page: 2",
+            'To-Mailbox: "fleet-agent"',
+            'Message-ID: "1"',
+            'Sent-At: "2026-09-04T09:00:00.000Z"',
+            "",
+            '"Wake"',
+          ].join("\n"),
+        },
+      }),
+    ).toBe(true);
+    expect(isPersistFleetRouteInvalidationEvent({ type: "thread.created" })).toBe(false);
+    expect(
+      isPersistFleetRouteInvalidationEvent({
+        type: "thread.activity-appended",
+        payload: { activity: { kind: "plan.updated", payload: {} } },
+      }),
+    ).toBe(false);
+    expect(
+      isPersistFleetRouteInvalidationEvent({
+        type: "thread.message-sent",
+        payload: { role: "assistant", text: "PERSIST-Page: 2" },
+      }),
+    ).toBe(false);
+    expect(isPersistFleetRouteInvalidationEvent({ type: "thread.assistant-delta" })).toBe(false);
+    expect(isPersistFleetRouteInvalidationEvent({ type: "thread.session-set" })).toBe(false);
+    expect(isPersistFleetRouteInvalidationEvent(null)).toBe(false);
   });
 });

@@ -126,7 +126,10 @@ import {
   retryGeneratedImageFileLookup,
 } from "./assets/GeneratedImageResolver.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
-import { persistFleetInvalidations } from "./addons/persist/PersistFleetEvents.ts";
+import {
+  isPersistFleetRouteInvalidationEvent,
+  persistFleetInvalidations,
+} from "./addons/persist/PersistFleetEvents.ts";
 import { makePersistFleetSnapshotReader } from "./addons/persist/PersistFleetProjection.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -2969,7 +2972,14 @@ const makeWsRpcLayer = (
             WS_METHODS.subscribePersistFleet,
             Stream.concat(
               Stream.fromEffect(readPersistFleetSnapshot(input)),
-              persistFleetInvalidations.pipe(
+              Stream.merge(
+                persistFleetInvalidations,
+                orchestrationEngine.streamDomainEvents.pipe(
+                  Stream.filter(isPersistFleetRouteInvalidationEvent),
+                  Stream.map(() => undefined),
+                ),
+              ).pipe(
+                Stream.debounce("150 millis"),
                 Stream.mapEffect(() => readPersistFleetSnapshot(input)),
               ),
             ),

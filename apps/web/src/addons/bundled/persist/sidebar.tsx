@@ -8,7 +8,11 @@ import { primaryPersistFleetAtom } from "../../../state/server";
 import { usePrimaryEnvironmentId } from "../../../state/environments";
 import { SidebarFleetAgentHoverDetail, SidebarFleetAgentMeta } from "./SidebarFleetAgentMeta";
 import { usePersistBindingsStore } from "./bindingsStore";
-import { persistThreadContributionId, persistThreadContributionKind } from "./grouping";
+import {
+  isPersistFleetParentRole,
+  persistThreadContributionId,
+  persistThreadContributionKind,
+} from "./grouping";
 import { mergePersistBindings } from "./mergeFleet";
 
 function usePersistThreadContributions(
@@ -40,14 +44,14 @@ function usePersistThreadContributions(
       const parent =
         agent.parentAgentId === null ? null : (byAgentId.get(agent.parentAgentId) ?? null);
       const parentThreadId =
-        parent?.role === "orchestrator" ? (threadIdByAgentId.get(parent.agentId) ?? null) : null;
-      const childCount =
-        agent.role === "orchestrator"
-          ? agents.filter(
-              (candidate) =>
-                candidate.parentAgentId === agent.agentId && candidate.threadId !== null,
-            ).length
-          : 0;
+        parent !== null && isPersistFleetParentRole(parent.role)
+          ? (threadIdByAgentId.get(parent.agentId) ?? null)
+          : null;
+      const childCount = isPersistFleetParentRole(agent.role)
+        ? agents.filter(
+            (candidate) => candidate.parentAgentId === agent.agentId && candidate.threadId !== null,
+          ).length
+        : 0;
       const kind = persistThreadContributionKind({
         agent,
         hasParentThread: parentThreadId !== null,

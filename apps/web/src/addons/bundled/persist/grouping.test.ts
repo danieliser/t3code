@@ -61,6 +61,20 @@ describe("groupPersistFleetAgents", () => {
       ["not-a-child", []],
     ]);
   });
+
+  it.each(["commander", "coordinator"] as const)(
+    "nests an explicitly parented team member under a %s",
+    (role) => {
+      const groups = groupPersistFleetAgents([
+        agent({ agentId: "parent", role }),
+        agent({ agentId: "child", role: "team_member", parentAgentId: "parent" }),
+      ]);
+
+      expect(groups).toHaveLength(1);
+      expect(groups[0]?.agent.agentId).toBe("parent");
+      expect(groups[0]?.children.map((child) => child.agentId)).toEqual(["child"]);
+    },
+  );
 });
 
 describe("groupPersistFleetThreads", () => {
@@ -101,6 +115,31 @@ describe("groupPersistFleetThreads", () => {
       { thread: unrelated, agent: null, children: [] },
     ]);
     expect(groups[0]?.children[0]?.agent.work.state).toBe("unknown");
+  });
+
+  it("marries an explicitly typed child row to its commander", () => {
+    const parent = thread("thread-commander");
+    const child = thread("thread-command-worker");
+    const groups = groupPersistFleetThreads(
+      [parent, child],
+      [
+        agent({
+          agentId: "fleet-commander",
+          role: "commander",
+          threadId: ThreadId.make(parent.id),
+        }),
+        agent({
+          agentId: "fleet-worker",
+          role: "team_member",
+          parentAgentId: "fleet-commander",
+          threadId: ThreadId.make(child.id),
+        }),
+      ],
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.thread.id).toBe(parent.id);
+    expect(groups[0]?.children.map((member) => member.thread.id)).toEqual([child.id]);
   });
 
   it("never infers parentage from agent handles or thread titles", () => {

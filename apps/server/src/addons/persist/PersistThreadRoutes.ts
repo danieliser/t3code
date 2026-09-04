@@ -69,7 +69,7 @@ function completedMailboxSendArgs(activity: unknown): Record<string, unknown> | 
   return null;
 }
 
-function persistMailboxFromPage(
+export function persistMailboxFromPage(
   message: Pick<OrchestrationMessage, "role" | "text">,
 ): string | null {
   if (message.role !== "user") return null;
@@ -83,6 +83,10 @@ function persistMailboxFromPage(
 
   const match = headers.match(/^To-Mailbox:\s*"([^"\r\n]+)"\s*$/m);
   return nonempty(match?.[1]);
+}
+
+export function isPersistRouteActivity(activity: unknown): boolean {
+  return completedMailboxSendArgs(activity) !== null;
 }
 
 type PersistRouteThread = Pick<OrchestrationThread, "id" | "activities"> & {

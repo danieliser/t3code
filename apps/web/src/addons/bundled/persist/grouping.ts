@@ -16,6 +16,10 @@ export interface PersistFleetAgentGroup {
   readonly children: readonly PersistFleetAgent[];
 }
 
+export function isPersistFleetParentRole(role: PersistFleetAgent["role"]): boolean {
+  return role === "commander" || role === "orchestrator" || role === "coordinator";
+}
+
 /**
  * One T3 thread can legitimately route more than one PERSIST identity (for
  * example, when a mailbox role is renamed or handed over). Keep each row
@@ -31,11 +35,7 @@ export function persistThreadContributionKind(input: {
   readonly childCount: number;
 }): "parent" | "child" | "standalone" {
   if (input.hasParentThread) return "child";
-  if (
-    input.childCount > 0 ||
-    input.agent.role === "commander" ||
-    input.agent.role === "orchestrator"
-  ) {
+  if (input.childCount > 0 || isPersistFleetParentRole(input.agent.role)) {
     return "parent";
   }
   return "standalone";
@@ -49,7 +49,7 @@ export function groupPersistFleetAgents(
   const roots: PersistFleetAgent[] = [];
   for (const agent of agents) {
     const parent = agent.parentAgentId === null ? null : byId.get(agent.parentAgentId);
-    if (parent?.role !== "orchestrator") {
+    if (parent === null || parent === undefined || !isPersistFleetParentRole(parent.role)) {
       roots.push(agent);
       continue;
     }
@@ -94,7 +94,8 @@ export function groupPersistFleetThreads<TThread extends { readonly id: string }
     const parentAgent = agentById.get(agent.parentAgentId);
     if (
       childThread === undefined ||
-      parentAgent?.role !== "orchestrator" ||
+      parentAgent === undefined ||
+      !isPersistFleetParentRole(parentAgent.role) ||
       parentAgent.threadId === null ||
       !threadById.has(parentAgent.threadId)
     ) {
