@@ -1231,13 +1231,13 @@ export function makeCursorAdapter(
       capabilities: { sessionModelSwitch: "in-session" },
       compaction: { type: "slash-command", command: "/compress" },
       startSession,
-      isSameResumeCursor: (persisted, recovered) => {
+      isSameResumeCursor: (_threadId, persisted, recovered) => {
         const persistedSession = parseCursorResume(persisted);
         const recoveredSession = parseCursorResume(recovered);
-        return (
+        return Effect.succeed(
           persistedSession !== undefined &&
-          recoveredSession !== undefined &&
-          persistedSession.sessionId === recoveredSession.sessionId
+            recoveredSession !== undefined &&
+            persistedSession.sessionId === recoveredSession.sessionId,
         );
       },
       sendTurn,

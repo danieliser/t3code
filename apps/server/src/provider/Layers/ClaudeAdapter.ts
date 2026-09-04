@@ -74,6 +74,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
 import * as Random from "effect/Random";
@@ -306,6 +307,7 @@ interface ClaudeSessionContext {
    * effort override inherit this. */
   currentEffort: string | undefined;
   resumeSessionId: string | undefined;
+  readonly confirmedResumeSessionId: Deferred.Deferred<string>;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly pendingUserInputs: Map<ApprovalRequestId, PendingUserInput>;
   readonly turns: Array<{
@@ -2309,6 +2311,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     const nextThreadId = message.session_id;
     context.resumeSessionId = message.session_id;
     yield* updateResumeCursor(context);
+    yield* Deferred.succeed(context.confirmedResumeSessionId, message.session_id);
 
     if (context.lastThreadStartedId !== nextThreadId) {
       context.lastThreadStartedId = nextThreadId;
@@ -4374,6 +4377,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       const runPromise = Effect.runPromiseWith(runtimeContext);
 
       const promptQueue = yield* Queue.unbounded<PromptQueueItem>();
+      const confirmedResumeSessionId = yield* Deferred.make<string>();
       const prompt = Stream.fromQueue(promptQueue).pipe(
         Stream.filter((item) => item.type === "message"),
         Stream.map((item) => item.message),
@@ -4954,6 +4958,7 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         currentApiModelId: apiModelId,
         currentEffort: effectiveEffort ?? undefined,
         resumeSessionId: sessionId,
+        confirmedResumeSessionId,
         pendingApprovals,
         pendingUserInputs,
         turns: [],
@@ -5315,15 +5320,24 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     },
     compaction: { type: "slash-command", command: "/compact" },
     startSession,
-    isSameResumeCursor: (persisted, recovered) => {
-      const persistedResume = readClaudeResumeState(persisted)?.resume;
-      const recoveredResume = readClaudeResumeState(recovered)?.resume;
-      return (
-        persistedResume !== undefined &&
-        recoveredResume !== undefined &&
-        persistedResume === recoveredResume
-      );
-    },
+    isSameResumeCursor: (threadId, persisted, recovered) =>
+      Effect.gen(function* () {
+        const persistedResume = readClaudeResumeState(persisted)?.resume;
+        const recoveredResume = readClaudeResumeState(recovered)?.resume;
+        const context = sessions.get(threadId);
+        if (
+          persistedResume === undefined ||
+          recoveredResume === undefined ||
+          persistedResume !== recoveredResume ||
+          context === undefined
+        ) {
+          return false;
+        }
+        const confirmed = yield* Deferred.await(context.confirmedResumeSessionId).pipe(
+          Effect.timeoutOption("10 seconds"),
+        );
+        return Option.isSome(confirmed) && confirmed.value === persistedResume;
+      }),
     sendTurn,
     interruptTurn,
     readThread,
