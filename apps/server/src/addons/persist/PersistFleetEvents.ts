@@ -1,7 +1,9 @@
 // @effect-diagnostics globalTimers:off globalTimersInEffect:off globalDate:off -- The ws client owns reconnect/reconcile handles outside Effect scheduling and clears them in its Scope finalizer.
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Queue from "effect/Queue";
+import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import WebSocket from "ws";
 
@@ -12,6 +14,25 @@ const DEFAULT_DAEMON_URL = "http://127.0.0.1:8803";
 const RECONNECT_DELAY_MS = 1_000;
 const RECONCILE_INTERVAL_MS = 30_000;
 export const PERSIST_FLEET_CHANNEL = "fleet";
+
+const PERSIST_FLEET_RECOVERY_SCHEDULE = Schedule.exponential("500 millis").pipe(
+  Schedule.modifyDelay(({ duration }) =>
+    Effect.succeed(Duration.min(duration, Duration.seconds(5))),
+  ),
+);
+
+/**
+ * Keep an addon subscription alive when PERSIST is still starting or briefly
+ * unavailable. Without this boundary, one failed initial fleet read closes
+ * the RPC stream permanently and the renderer cannot recover until it creates
+ * a new subscription.
+ */
+export function recoverPersistFleetStream<A, E, R>(
+  stream: Stream.Stream<A, E, R>,
+  schedule: Schedule.Schedule<unknown, E, never, never> = PERSIST_FLEET_RECOVERY_SCHEDULE,
+): Stream.Stream<A, E, R> {
+  return stream.pipe(Stream.retry(schedule));
+}
 
 export function persistWebSocketUrl(daemonUrl: string): string {
   const url = new URL(daemonUrl);

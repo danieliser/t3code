@@ -1,3 +1,8 @@
+import { it as effectIt } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
+import * as Schedule from "effect/Schedule";
+import * as Stream from "effect/Stream";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -5,6 +10,7 @@ import {
   isPersistFleetRouteInvalidationEvent,
   PERSIST_FLEET_CHANNEL,
   persistWebSocketUrl,
+  recoverPersistFleetStream,
 } from "./PersistFleetEvents.ts";
 
 describe("persistWebSocketUrl", () => {
@@ -98,4 +104,23 @@ describe("isPersistFleetRouteInvalidationEvent", () => {
     expect(isPersistFleetRouteInvalidationEvent({ type: "thread.session-set" })).toBe(false);
     expect(isPersistFleetRouteInvalidationEvent(null)).toBe(false);
   });
+});
+
+describe("recoverPersistFleetStream", () => {
+  effectIt.effect(
+    "retries a failed initial read instead of permanently closing the subscription",
+    () =>
+      Effect.gen(function* () {
+        let attempts = 0;
+        const first = yield* Stream.fromEffect(
+          Effect.suspend(() => {
+            attempts += 1;
+            return attempts === 1 ? Effect.fail("PERSIST unavailable") : Effect.succeed("ready");
+          }),
+        ).pipe((stream) => recoverPersistFleetStream(stream, Schedule.recurs(1)), Stream.runHead);
+
+        expect(Option.getOrNull(first)).toBe("ready");
+        expect(attempts).toBe(2);
+      }),
+  );
 });

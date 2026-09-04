@@ -14,6 +14,7 @@ import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstab
 
 const DEFAULT_DAEMON_URL = "http://127.0.0.1:8803";
 const DEFAULT_WEB_URL = "http://127.0.0.1:5173";
+const PERSIST_FLEET_READ_TIMEOUT_MS = 2_000;
 
 function boardTitle(slug: string): string {
   return slug
@@ -134,7 +135,7 @@ export function readPersistFleet(input: { readonly includeOffline?: boolean | un
         Effect.mapError(
           () => new PersistFleetUnavailableError({ message: "PERSIST is unavailable." }),
         ),
-        Effect.timeoutOption(5_000),
+        Effect.timeoutOption(PERSIST_FLEET_READ_TIMEOUT_MS),
         Effect.flatMap(
           Option.match({
             onNone: () =>

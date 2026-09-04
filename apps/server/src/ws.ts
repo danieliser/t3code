@@ -129,6 +129,7 @@ import * as PortScanner from "./preview/PortScanner.ts";
 import {
   isPersistFleetRouteInvalidationEvent,
   persistFleetInvalidations,
+  recoverPersistFleetStream,
 } from "./addons/persist/PersistFleetEvents.ts";
 import { makePersistFleetSnapshotReader } from "./addons/persist/PersistFleetProjection.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
@@ -2970,17 +2971,19 @@ const makeWsRpcLayer = (
         [WS_METHODS.subscribePersistFleet]: (input) =>
           observeRpcStream(
             WS_METHODS.subscribePersistFleet,
-            Stream.concat(
-              Stream.fromEffect(readPersistFleetSnapshot(input)),
-              Stream.merge(
-                persistFleetInvalidations,
-                orchestrationEngine.streamDomainEvents.pipe(
-                  Stream.filter(isPersistFleetRouteInvalidationEvent),
-                  Stream.map(() => undefined),
+            recoverPersistFleetStream(
+              Stream.concat(
+                Stream.fromEffect(readPersistFleetSnapshot(input)),
+                Stream.merge(
+                  persistFleetInvalidations,
+                  orchestrationEngine.streamDomainEvents.pipe(
+                    Stream.filter(isPersistFleetRouteInvalidationEvent),
+                    Stream.map(() => undefined),
+                  ),
+                ).pipe(
+                  Stream.debounce("150 millis"),
+                  Stream.mapEffect(() => readPersistFleetSnapshot(input)),
                 ),
-              ).pipe(
-                Stream.debounce("150 millis"),
-                Stream.mapEffect(() => readPersistFleetSnapshot(input)),
               ),
             ),
             { "rpc.aggregate": "server" },
