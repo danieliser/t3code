@@ -131,6 +131,7 @@ import {
   flattenSidebarAddonGroups,
   groupThreadsWithAddonContributions,
   useSidebarAddonThreadContributions,
+  type SidebarThreadAddonMember,
   type SidebarThreadAddonPresentation,
 } from "../addons";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -1087,6 +1088,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   changeRequestSnapshot: ThreadChangeRequestSnapshot | null;
   addonPresentation: SidebarThreadAddonPresentation | null;
+  addonDepth: number;
+  hasAddonChildren: boolean;
   onChangeRequestSnapshot: (
     threadKey: string,
     snapshot: ThreadChangeRequestSnapshot | null,
@@ -1482,6 +1485,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   // dnd-kit props for the row root. Same bag on both variants: every row in
   // the list translates around the gap as the drag passes it.
   const sortable = props.sortable;
+  const addonIndent = props.addonDepth > 0 ? `${Math.min(props.addonDepth, 3)}rem` : undefined;
   const sortableRootProps = sortable
     ? {
         ref: sortable.setNodeRef,
@@ -1494,10 +1498,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
             !sortable.isDragging && sortable.transform?.scaleY === 0
               ? ("hidden" as const)
               : undefined,
+          marginLeft: addonIndent,
         },
         ...sortable.listeners,
       }
-    : {};
+    : addonIndent === undefined
+      ? {}
+      : { style: { marginLeft: addonIndent } };
   const dragDestination =
     sortable?.isDragging && props.dropVerb !== null ? (
       <span
@@ -1640,11 +1647,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
         data-thread-item
         {...sortableRootProps}
         data-addon-child={props.addonPresentation?.kind === "child" || undefined}
+        data-addon-depth={props.addonDepth || undefined}
         className={cn(
           "list-none [content-visibility:auto] [contain-intrinsic-size:auto_34px]",
           sortable?.isDragging && "relative z-20",
           props.addonPresentation?.kind === "child" &&
-            "relative ml-4 border-l border-sidebar-border/70 pl-1 before:absolute before:left-0 before:top-1/2 before:w-1.5 before:border-t before:border-sidebar-border/70",
+            "relative border-l border-sidebar-border/70 pl-1 before:absolute before:left-0 before:top-1/2 before:w-1.5 before:border-t before:border-sidebar-border/70",
         )}
       >
         <Tooltip disabled={sortable?.isDragging}>
@@ -1815,6 +1823,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
     <li
       data-thread-item
       {...sortableRootProps}
+      data-addon-depth={props.addonDepth || undefined}
       className={cn(
         "list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_96px]",
         sortable?.isDragging && "relative z-20",
@@ -1831,7 +1840,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
               data-addon-ids={props.addonPresentation?.contributions
                 .map((contribution) => contribution.addonId)
                 .join(" ")}
-              data-addon-parent={props.addonPresentation?.kind === "parent" || undefined}
+              data-addon-parent={
+                props.addonPresentation?.kind === "parent" || props.hasAddonChildren || undefined
+              }
               aria-busy={isRegeneratingTitle || undefined}
               className={cn(
                 rowSurfaceClassName,
@@ -2877,21 +2888,38 @@ export default function Sidebar() {
     () => flattenSidebarAddonGroups(addonThreadGroups),
     [addonThreadGroups],
   );
-  const addonPresentationByThreadKey = useMemo(() => {
-    const mapping = new Map<string, SidebarThreadAddonPresentation>();
+  const addonMetaByThreadKey = useMemo(() => {
+    const mapping = new Map<
+      string,
+      {
+        readonly presentation: SidebarThreadAddonPresentation | null;
+        readonly depth: number;
+        readonly hasChildren: boolean;
+      }
+    >();
+    const visitMembers = (
+      members: readonly SidebarThreadAddonMember<EnvironmentThreadShell>[],
+      depth: number,
+    ) => {
+      for (const member of members) {
+        mapping.set(
+          scopedThreadKey(scopeThreadRef(member.thread.environmentId, member.thread.id)),
+          {
+            presentation: member.presentation,
+            depth,
+            hasChildren: member.children.length > 0,
+          },
+        );
+        visitMembers(member.children, depth + 1);
+      }
+    };
     for (const group of addonThreadGroups) {
-      if (group.presentation !== null) {
-        mapping.set(
-          scopedThreadKey(scopeThreadRef(group.thread.environmentId, group.thread.id)),
-          group.presentation,
-        );
-      }
-      for (const child of group.children) {
-        mapping.set(
-          scopedThreadKey(scopeThreadRef(child.thread.environmentId, child.thread.id)),
-          child.presentation,
-        );
-      }
+      mapping.set(scopedThreadKey(scopeThreadRef(group.thread.environmentId, group.thread.id)), {
+        presentation: group.presentation,
+        depth: 0,
+        hasChildren: group.children.length > 0,
+      });
+      visitMembers(group.children, 1);
     }
     return mapping;
   }, [addonThreadGroups]);
@@ -5106,17 +5134,18 @@ export default function Sidebar() {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
-                        const addonPresentation =
+                        const addonMeta =
                           section === "active" || section === "pinned"
-                            ? (addonPresentationByThreadKey.get(threadKey) ?? null)
+                            ? (addonMetaByThreadKey.get(threadKey) ?? null)
                             : null;
+                        const addonPresentation = addonMeta?.presentation ?? null;
                         // Settled and snoozed are the ONLY things that collapse a
                         // row: every other thread is a full card. Density comes
                         // from users (or the auto rules) actually parking work,
                         // not from the sidebar second-guessing what still matters.
                         const isCard =
                           (section === "active" || section === "pinned") &&
-                          addonPresentation?.kind !== "child";
+                          (addonPresentation?.kind !== "child" || addonMeta?.hasChildren === true);
                         const rowVariant = isCard ? "card" : "slim";
                         return (
                           <SidebarThreadRow
@@ -5229,6 +5258,8 @@ export default function Sidebar() {
                             changeRequestSnapshot={changeRequestSnapshotByKey.get(threadKey) ?? null}
                             onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
                             addonPresentation={addonPresentation}
+                            addonDepth={addonMeta?.depth ?? 0}
+                            hasAddonChildren={addonMeta?.hasChildren ?? false}
                           />
                         );
                       };

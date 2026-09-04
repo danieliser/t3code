@@ -53,7 +53,7 @@ describe("groupThreadsWithAddonContributions", () => {
     expect(groups[0]).toMatchObject({
       thread: parent,
       presentation: { kind: "parent" },
-      children: [{ thread: child, presentation: { kind: "child" } }],
+      children: [{ thread: child, presentation: { kind: "child" }, children: [] }],
     });
     expect(groups[1]).toMatchObject({ thread: plain, presentation: null, children: [] });
   });
@@ -117,7 +117,7 @@ describe("groupThreadsWithAddonContributions", () => {
     expect(flattenSidebarAddonGroups(groups)).toEqual([parent, child]);
   });
 
-  it("leaves conflicting and nested relationships top-level instead of hiding rows", () => {
+  it("leaves conflicting relationships top-level without breaking valid nested relationships", () => {
     const parentA = thread(ENV_A, "parent-a");
     const parentB = thread(ENV_A, "parent-b");
     const child = thread(ENV_A, "child");
@@ -131,13 +131,12 @@ describe("groupThreadsWithAddonContributions", () => {
       ],
     );
 
-    expect(
-      groups.flatMap((group) => [group.thread, ...group.children.map((member) => member.thread)]),
-    ).toEqual([parentA, parentB, child, grandchild]);
+    expect(flattenSidebarAddonGroups(groups)).toEqual([parentA, parentB, child, grandchild]);
     expect(groups.every((group) => group.presentation?.kind !== "child")).toBe(true);
+    expect(groups[2]?.children.map((member) => member.thread)).toEqual([grandchild]);
   });
 
-  it("does not hide a grandchild when its parent is already attached", () => {
+  it("recursively attaches a grandchild under its parent", () => {
     const parent = thread(ENV_A, "parent");
     const child = thread(ENV_A, "child");
     const grandchild = thread(ENV_A, "grandchild");
@@ -149,8 +148,25 @@ describe("groupThreadsWithAddonContributions", () => {
       ],
     );
 
-    expect(groups.map((group) => group.thread)).toEqual([parent, grandchild]);
+    expect(groups.map((group) => group.thread)).toEqual([parent]);
     expect(groups[0]?.children.map((member) => member.thread)).toEqual([child]);
-    expect(groups[1]?.presentation?.kind).toBe("standalone");
+    expect(groups[0]?.children[0]?.children.map((member) => member.thread)).toEqual([grandchild]);
+    expect(flattenSidebarAddonGroups(groups)).toEqual([parent, child, grandchild]);
+  });
+
+  it("keeps every member of a cycle accessible as a top-level row", () => {
+    const first = thread(ENV_A, "first");
+    const second = thread(ENV_A, "second");
+    const groups = groupThreadsWithAddonContributions(
+      [first, second],
+      [
+        contribution({ addonId: "fleet", threadId: "first", parentThreadId: "second" }),
+        contribution({ addonId: "fleet", threadId: "second", parentThreadId: "first" }),
+      ],
+    );
+
+    expect(groups.map((group) => group.thread)).toEqual([first, second]);
+    expect(groups.every((group) => group.children.length === 0)).toBe(true);
+    expect(flattenSidebarAddonGroups(groups)).toEqual([first, second]);
   });
 });

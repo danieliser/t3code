@@ -29,6 +29,7 @@ export interface SidebarThreadAddonPresentation {
 export interface SidebarThreadAddonMember<TThread> {
   readonly thread: TThread;
   readonly presentation: SidebarThreadAddonPresentation;
+  readonly children: readonly SidebarThreadAddonMember<TThread>[];
 }
 
 export interface SidebarThreadAddonGroup<TThread> {
@@ -46,7 +47,10 @@ export interface SidebarAddon {
 export function flattenSidebarAddonGroups<TThread>(
   groups: readonly SidebarThreadAddonGroup<TThread>[],
 ): readonly TThread[] {
-  return groups.flatMap((group) => [group.thread, ...group.children.map((child) => child.thread)]);
+  const flattenMembers = (members: readonly SidebarThreadAddonMember<TThread>[]): TThread[] =>
+    members.flatMap((member) => [member.thread, ...flattenMembers(member.children)]);
+
+  return groups.flatMap((group) => [group.thread, ...flattenMembers(group.children)]);
 }
 
 function threadKey(thread: {
@@ -57,12 +61,13 @@ function threadKey(thread: {
 }
 
 /**
- * Build the one-level row model consumed by both rendering and navigation.
+ * Build the recursive row model consumed by both rendering and navigation.
  *
  * UI from multiple addons composes on a row. A child relationship is accepted
  * only when every addon that claims one agrees on the same present parent.
- * Missing, conflicting, cyclic, and nested parentage falls back to a top-level
- * row so an addon can never make a core thread inaccessible.
+ * Missing, conflicting, and cyclic parentage falls back to a top-level row so
+ * an addon can never make a core thread inaccessible. Acyclic nested parentage
+ * remains attached at every level.
  */
 export function groupThreadsWithAddonContributions<
   TThread extends { readonly environmentId: EnvironmentId; readonly id: ThreadId },
@@ -98,26 +103,41 @@ export function groupThreadsWithAddonContributions<
 
   const attachedParentByChildKey = new Map<string, string>();
   for (const [childKey, parentKey] of proposedParentByChildKey) {
-    // The sidebar deliberately supports one parent/child level. If the parent
-    // is itself a child, leave this row top-level rather than dropping a
-    // grandchild or creating a cycle that the renderer cannot represent.
-    if (proposedParentByChildKey.has(parentKey)) continue;
-    attachedParentByChildKey.set(childKey, parentKey);
+    const visited = new Set([childKey]);
+    let ancestorKey: string | undefined = parentKey;
+    let cyclic = false;
+    while (ancestorKey !== undefined) {
+      if (visited.has(ancestorKey)) {
+        cyclic = true;
+        break;
+      }
+      visited.add(ancestorKey);
+      ancestorKey = proposedParentByChildKey.get(ancestorKey);
+    }
+    if (!cyclic) attachedParentByChildKey.set(childKey, parentKey);
   }
 
-  const childrenByParentKey = new Map<string, SidebarThreadAddonMember<TThread>[]>();
+  const childrenByParentKey = new Map<string, TThread[]>();
   for (const thread of threads) {
     const childKey = threadKey(thread);
     const parentKey = attachedParentByChildKey.get(childKey);
     if (parentKey === undefined) continue;
-    const threadContributions = contributionsByThreadKey.get(childKey) ?? [];
     const children = childrenByParentKey.get(parentKey) ?? [];
-    children.push({
-      thread,
-      presentation: { kind: "child", contributions: threadContributions },
-    });
+    children.push(thread);
     childrenByParentKey.set(parentKey, children);
   }
+
+  const buildMember = (thread: TThread): SidebarThreadAddonMember<TThread> => {
+    const key = threadKey(thread);
+    return {
+      thread,
+      presentation: {
+        kind: "child",
+        contributions: contributionsByThreadKey.get(key) ?? [],
+      },
+      children: (childrenByParentKey.get(key) ?? []).map(buildMember),
+    };
+  };
 
   return threads.flatMap((thread) => {
     const key = threadKey(thread);
@@ -134,7 +154,7 @@ export function groupThreadsWithAddonContributions<
           threadContributions.length === 0
             ? null
             : { kind: rootKind, contributions: threadContributions },
-        children: childrenByParentKey.get(key) ?? [],
+        children: (childrenByParentKey.get(key) ?? []).map(buildMember),
       },
     ];
   });
