@@ -62,6 +62,7 @@ import {
   formatClaudeResumeCompactionQuestion,
 } from "@t3tools/shared/claudeCompaction";
 import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
@@ -71,6 +72,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Fiber from "effect/Fiber";
 import * as Path from "effect/Path";
 import * as Queue from "effect/Queue";
+import * as Random from "effect/Random";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -153,6 +155,10 @@ interface ClaudeTurnState {
   latestAssistantUsage: unknown | undefined;
   compactedSinceLatestAssistantUsage: boolean;
   nextSyntheticAssistantBlockIndex: number;
+  /** The exact provider message is retained while Claude is in a terminal
+   * overload backoff so the same canonical turn can be retried without
+   * appending a duplicate user message to T3's thread. */
+  retryMessage?: SDKUserMessage;
 }
 
 interface AssistantTextBlockState {
@@ -322,7 +328,34 @@ interface ClaudeSessionContext {
   lastKnownTotalProcessedTokens: number | undefined;
   lastAssistantUuid: string | undefined;
   lastThreadStartedId: string | undefined;
+  overloadRetryAttempt: number;
+  overloadRetryStartedAt: number | undefined;
+  overloadRetryFiber: Fiber.Fiber<void, never> | undefined;
   stopped: boolean;
+}
+
+const CLAUDE_OVERLOAD_RETRY_DELAYS_MS = [
+  2 * 60_000,
+  5 * 60_000,
+  10 * 60_000,
+  20 * 60_000,
+  40 * 60_000,
+  60 * 60_000,
+] as const;
+const CLAUDE_OVERLOAD_RETRY_WINDOW_MS = 4 * 60 * 60_000;
+const CLAUDE_OVERLOAD_RETRY_JITTER = 0.2;
+
+function isClaudeOverloadResult(result: SDKResultMessage): boolean {
+  return (
+    result.subtype === "success" && result.is_error === true && result.api_error_status === 529
+  );
+}
+
+function overloadRetryBaseDelayMs(attempt: number, delays: ReadonlyArray<number>): number {
+  return (
+    delays[Math.min(Math.max(attempt - 1, 0), delays.length - 1)] ??
+    CLAUDE_OVERLOAD_RETRY_DELAYS_MS.at(-1)!
+  );
 }
 
 interface ClaudeQueryRuntime extends AsyncIterable<SDKMessage> {
@@ -342,6 +375,12 @@ export interface ClaudeAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
   readonly modelCatalog?: Effect.Effect<ClaudeModelCatalog>;
+  /** Focused-test override; production uses the bounded minute schedule. */
+  readonly overloadRetryDelaysMs?: ReadonlyArray<number>;
+  /** Focused-test override; production retries for at most four hours. */
+  readonly overloadRetryWindowMs?: number;
+  /** Focused-test clock seam for the delayed retry worker. */
+  readonly overloadRetrySleep?: (delayMs: number) => Effect.Effect<void>;
 }
 
 function isUuid(value: string): boolean {
@@ -430,9 +469,12 @@ function resultErrorsText(result: SDKResultMessage): string {
  * so they must never become the error banner.
  */
 function resultUserFacingError(result: SDKResultMessage): string | undefined {
-  if (result.subtype === "success" || !Array.isArray(result.errors)) {
-    return undefined;
+  if (result.subtype === "success") {
+    if (result.is_error !== true) return undefined;
+    const message = result.result.trim();
+    return message.length > 0 ? message : undefined;
   }
+  if (!Array.isArray(result.errors)) return undefined;
   return result.errors.find((error) => !error.startsWith("[ede_diagnostic]"));
 }
 
@@ -1382,7 +1424,11 @@ const buildUserMessageEffect = Effect.fn("buildUserMessageEffect")(function* (
 });
 
 function turnStatusFromResult(result: SDKResultMessage): ProviderRuntimeTurnStatus {
-  if (result.subtype === "success") {
+  if (
+    result.subtype === "success" &&
+    result.is_error !== true &&
+    (result.api_error_status === undefined || result.api_error_status === null)
+  ) {
     return "completed";
   }
 
@@ -1723,6 +1769,15 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
   options?: ClaudeAdapterLiveOptions,
 ) {
   const boundInstanceId = options?.instanceId ?? ProviderInstanceId.make("claudeAgent");
+  const overloadRetryDelaysMs =
+    options?.overloadRetryDelaysMs?.filter((delay) => Number.isFinite(delay) && delay >= 0) ??
+    CLAUDE_OVERLOAD_RETRY_DELAYS_MS;
+  const overloadRetryWindowMs =
+    options?.overloadRetryWindowMs !== undefined && options.overloadRetryWindowMs > 0
+      ? options.overloadRetryWindowMs
+      : CLAUDE_OVERLOAD_RETRY_WINDOW_MS;
+  const overloadRetrySleep =
+    options?.overloadRetrySleep ?? ((delayMs: number) => Effect.sleep(`${delayMs} millis`));
   const modelCatalogEffect = (
     options?.modelCatalog ?? Effect.succeed(BUNDLED_CLAUDE_MODEL_CATALOG)
   ).pipe(Effect.map((catalog) => scopeClaudeModelCatalog(catalog, claudeSettings.customModels)));
@@ -2121,6 +2176,97 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     });
   });
 
+  const scheduleClaudeOverloadRetry = Effect.fn("scheduleClaudeOverloadRetry")(function* (
+    context: ClaudeSessionContext,
+  ) {
+    const retryMessage = context.turnState?.retryMessage;
+    if (retryMessage === undefined) {
+      return false;
+    }
+
+    const now = yield* Clock.currentTimeMillis;
+    const startedAt = context.overloadRetryStartedAt ?? now;
+    const remainingWindow = overloadRetryWindowMs - (now - startedAt);
+    if (remainingWindow <= 0) {
+      return false;
+    }
+
+    const attempt = context.overloadRetryAttempt + 1;
+    const jitter = 1 + ((yield* Random.next) * 2 - 1) * CLAUDE_OVERLOAD_RETRY_JITTER;
+    const delayMs = Math.min(
+      Math.round(overloadRetryBaseDelayMs(attempt, overloadRetryDelaysMs) * jitter),
+      remainingWindow,
+    );
+    const retryAt = DateTime.formatIso(DateTime.makeUnsafe(now + delayMs));
+
+    context.overloadRetryAttempt = attempt;
+    context.overloadRetryStartedAt = startedAt;
+    yield* updateResumeCursor(context);
+    yield* emitRuntimeWarning(context, `Claude is overloaded. Retrying this turn at ${retryAt}.`, {
+      status: 529,
+      attempt,
+      retryAt,
+    });
+
+    const waitingStamp = yield* makeEventStamp();
+    yield* offerRuntimeEvent({
+      type: "session.state.changed",
+      eventId: waitingStamp.eventId,
+      provider: PROVIDER,
+      createdAt: waitingStamp.createdAt,
+      threadId: context.session.threadId,
+      payload: {
+        state: "waiting",
+        reason: `api_overload_backoff:${attempt}:${retryAt}`,
+      },
+      providerRefs: nativeProviderRefs(context),
+    });
+
+    const retryEffect = overloadRetrySleep(delayMs).pipe(
+      Effect.andThen(
+        Effect.gen(function* () {
+          if (context.stopped || context.turnState?.retryMessage !== retryMessage) {
+            return;
+          }
+          context.overloadRetryFiber = undefined;
+          const runningStamp = yield* makeEventStamp();
+          yield* offerRuntimeEvent({
+            type: "session.state.changed",
+            eventId: runningStamp.eventId,
+            provider: PROVIDER,
+            createdAt: runningStamp.createdAt,
+            threadId: context.session.threadId,
+            payload: {
+              state: "running",
+              reason: `api_overload_retry:${attempt}`,
+            },
+            providerRefs: nativeProviderRefs(context),
+          });
+          yield* Queue.offer(context.promptQueue, {
+            type: "message",
+            message: retryMessage,
+          });
+        }),
+      ),
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.void
+          : Effect.logWarning("Claude overload retry failed", {
+              threadId: context.session.threadId,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+    );
+    // The message handler returns immediately after scheduling. A regular
+    // child fork is scoped to that handler and would be interrupted before
+    // the delay expires; the session owns and explicitly interrupts this
+    // detached fiber on completion, user input, or teardown.
+    context.overloadRetryFiber = yield* retryEffect.pipe(
+      Effect.forkDetach({ startImmediately: true }),
+    );
+    return true;
+  });
+
   const emitThreadTokenUsage = Effect.fn("emitThreadTokenUsage")(function* (
     context: ClaudeSessionContext,
     usage: ThreadTokenUsageSnapshot | undefined,
@@ -2251,6 +2397,13 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     errorMessage?: string,
     result?: SDKResultMessage,
   ) {
+    if (context.overloadRetryFiber !== undefined) {
+      yield* Fiber.interrupt(context.overloadRetryFiber);
+      context.overloadRetryFiber = undefined;
+    }
+    context.overloadRetryAttempt = 0;
+    context.overloadRetryStartedAt = undefined;
+
     const resultContextWindow = maxClaudeContextWindowFromModelUsage(result?.modelUsage);
     if (resultContextWindow !== undefined) {
       context.lastKnownContextWindow = resultContextWindow;
@@ -3052,6 +3205,10 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
       return;
     }
 
+    if (isClaudeOverloadResult(message) && (yield* scheduleClaudeOverloadRetry(context))) {
+      return;
+    }
+
     const status = turnStatusFromResult(message);
     const errorMessage = resultUserFacingError(message);
 
@@ -3725,6 +3882,11 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     options?: { readonly emitExitEvent?: boolean },
   ) {
     if (context.stopped) return;
+
+    if (context.overloadRetryFiber !== undefined) {
+      yield* Fiber.interrupt(context.overloadRetryFiber);
+      context.overloadRetryFiber = undefined;
+    }
 
     // Schedule process termination before any cleanup that can wait on the
     // provider. The SDK closes stdin, then escalates from SIGTERM to SIGKILL.
@@ -4477,6 +4639,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
         lastKnownTotalProcessedTokens: undefined,
         lastAssistantUuid: resumeState?.resumeSessionAt,
         lastThreadStartedId: undefined,
+        overloadRetryAttempt: 0,
+        overloadRetryStartedAt: undefined,
+        overloadRetryFiber: undefined,
         stopped: false,
       };
       yield* Ref.set(contextRef, context);
@@ -4558,6 +4723,12 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
 
   const sendTurn: ClaudeAdapterShape["sendTurn"] = Effect.fn("sendTurn")(function* (input) {
     const context = yield* requireSession(input.threadId);
+    if (context.overloadRetryFiber !== undefined) {
+      yield* Fiber.interrupt(context.overloadRetryFiber);
+      context.overloadRetryFiber = undefined;
+      context.overloadRetryAttempt = 0;
+      context.overloadRetryStartedAt = undefined;
+    }
     const modelCatalog = yield* modelCatalogEffect;
     const selectedModel =
       input.modelSelection !== undefined && input.modelSelection.instanceId === boundInstanceId
@@ -4677,6 +4848,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
           .map((skill) => skill.name),
       ),
     });
+    if (context.turnState) {
+      context.turnState.retryMessage = message;
+    }
 
     yield* Queue.offer(context.promptQueue, {
       type: "message",

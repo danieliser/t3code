@@ -163,6 +163,9 @@ function makeHarness(config?: {
   readonly baseDir?: string;
   readonly claudeConfig?: Partial<ClaudeSettings>;
   readonly instanceId?: ProviderInstanceId;
+  readonly overloadRetryDelaysMs?: ReadonlyArray<number>;
+  readonly overloadRetryWindowMs?: number;
+  readonly overloadRetrySleep?: ClaudeAdapterLiveOptions["overloadRetrySleep"];
 }) {
   const query = new FakeClaudeQuery();
   let createInput:
@@ -189,6 +192,13 @@ function makeHarness(config?: {
           nativeEventLogPath: config.nativeEventLogPath,
         }
       : {}),
+    ...(config?.overloadRetryDelaysMs
+      ? { overloadRetryDelaysMs: config.overloadRetryDelaysMs }
+      : {}),
+    ...(config?.overloadRetryWindowMs
+      ? { overloadRetryWindowMs: config.overloadRetryWindowMs }
+      : {}),
+    ...(config?.overloadRetrySleep ? { overloadRetrySleep: config.overloadRetrySleep } : {}),
   };
 
   return {
@@ -1995,6 +2005,139 @@ describe("ClaudeAdapterLive", () => {
         assert.equal(String(turnCompleted.turnId), String(turn.turnId));
         assert.equal(turnCompleted.payload.state, "interrupted");
         assert.equal(turnCompleted.payload.errorMessage, undefined);
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("backs off and retries a terminal Claude 529 without completing the turn", () => {
+    const harness = makeHarness({
+      overloadRetryDelaysMs: [120_000],
+      overloadRetryWindowMs: 60_000,
+      overloadRetrySleep: () => Effect.void,
+    });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const retryEventsFiber = yield* adapter.streamEvents.pipe(
+        Stream.takeUntil(
+          (event) =>
+            event.type === "session.state.changed" &&
+            event.payload.reason?.startsWith("api_overload_retry:") === true,
+        ),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      const session = yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      const turn = yield* adapter.sendTurn({
+        threadId: session.threadId,
+        input: "finish the release",
+        attachments: [],
+      });
+      assert.equal(
+        yield* Effect.promise(() => readFirstPromptText(harness.getLastCreateQueryInput())),
+        "finish the release",
+      );
+
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        api_error_status: 529,
+        result: "API Error: 529 Overloaded",
+        stop_reason: null,
+        session_id: "sdk-session-overloaded",
+        uuid: "result-overloaded",
+      } as unknown as SDKMessage);
+
+      const retryEvents = Array.from(yield* Fiber.join(retryEventsFiber));
+      assert.isFalse(retryEvents.some((event) => event.type === "turn.completed"));
+      assert.isTrue(
+        retryEvents.some(
+          (event) =>
+            event.type === "runtime.warning" &&
+            event.payload.message.startsWith("Claude is overloaded. Retrying this turn at "),
+        ),
+      );
+      assert.isTrue(
+        retryEvents.some(
+          (event) =>
+            event.type === "session.state.changed" &&
+            event.payload.reason?.startsWith("api_overload_retry:") === true,
+        ),
+      );
+
+      const completedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "turn.completed"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "done",
+        stop_reason: "end_turn",
+        session_id: "sdk-session-recovered",
+        uuid: "result-recovered",
+      } as unknown as SDKMessage);
+
+      const completed = Array.from(yield* Fiber.join(completedFiber))[0];
+      assert.equal(completed?.type, "turn.completed");
+      if (completed?.type === "turn.completed") {
+        assert.equal(completed.turnId, turn.turnId);
+        assert.equal(completed.payload.state, "completed");
+      }
+    }).pipe(
+      Effect.provideService(Random.Random, makeDeterministicRandomService()),
+      Effect.provide(harness.layer),
+    );
+  });
+
+  it.effect("does not report a non-retryable error-shaped success result as completed", () => {
+    const harness = makeHarness();
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      const completedFiber = yield* adapter.streamEvents.pipe(
+        Stream.filter((event) => event.type === "turn.completed"),
+        Stream.take(1),
+        Stream.runCollect,
+        Effect.forkChild,
+      );
+
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        provider: ProviderDriverKind.make("claudeAgent"),
+        runtimeMode: "full-access",
+      });
+      yield* adapter.sendTurn({
+        threadId: THREAD_ID,
+        input: "hello",
+        attachments: [],
+      });
+      harness.query.emit({
+        type: "result",
+        subtype: "success",
+        is_error: true,
+        api_error_status: 500,
+        result: "API Error: 500 Internal server error",
+        stop_reason: null,
+        session_id: "sdk-session-error-shaped-success",
+        uuid: "result-error-shaped-success",
+      } as unknown as SDKMessage);
+
+      const completed = Array.from(yield* Fiber.join(completedFiber))[0];
+      assert.equal(completed?.type, "turn.completed");
+      if (completed?.type === "turn.completed") {
+        assert.equal(completed.payload.state, "failed");
+        assert.equal(completed.payload.errorMessage, "API Error: 500 Internal server error");
       }
     }).pipe(
       Effect.provideService(Random.Random, makeDeterministicRandomService()),
