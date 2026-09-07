@@ -519,7 +519,7 @@ function terminalResultError(
 function resultUserFacingError(result: SDKResultMessage): string | undefined {
   if (result.subtype === "success") {
     if (result.is_error !== true) return undefined;
-    const message = result.result.trim();
+    const message = typeof result.result === "string" ? result.result.trim() : "";
     return message.length > 0 ? message : undefined;
   }
   if (!Array.isArray(result.errors)) return undefined;
@@ -1641,7 +1641,9 @@ function resultOutcome(
             typeof error === "string" && !error.startsWith("[ede_diagnostic]"),
         );
   const errorMessage = listedError || structuredError;
-  if (structuredError !== undefined) return { status: "failed", errorMessage };
+  if (structuredError !== undefined || (successTaggedFailure && errorMessage !== undefined)) {
+    return { status: "failed", errorMessage };
+  }
   if (result.subtype === "success") return { status: "completed", errorMessage };
   if (isInterruptedResult(result)) return { status: "interrupted", errorMessage };
   return {

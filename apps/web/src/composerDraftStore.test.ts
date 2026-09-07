@@ -2395,7 +2395,7 @@ describe("composerDraftStore model seed migration", () => {
   });
 
   it.each([1, 2])(
-    "keeps the legacy sticky Codex selection when v%s storage omitted the provider",
+    "leaves v%s sticky preferences to the dedicated preference migration",
     async (version) => {
       vi.useFakeTimers();
       try {
@@ -2421,7 +2421,7 @@ describe("composerDraftStore model seed migration", () => {
         await useComposerDraftStore.persist.rehydrate();
 
         expect(useComposerDraftStore.getState()).toMatchObject({
-          stickyModelSelectionByProvider: { [CODEX_INSTANCE]: stickySelection },
+          stickyModelSelectionByProvider: {},
           stickyActiveProvider: null,
         });
       } finally {
@@ -2511,8 +2511,8 @@ describe("composerDraftStore model seed migration", () => {
         logicalProjectKey,
       });
       expect(useComposerDraftStore.getState()).toMatchObject({
-        stickyModelSelectionByProvider: { [CODEX_INSTANCE]: stickySelection },
-        stickyActiveProvider: CODEX_INSTANCE,
+        stickyModelSelectionByProvider: {},
+        stickyActiveProvider: null,
       });
     } finally {
       vi.useRealTimers();
@@ -2858,7 +2858,7 @@ describe("createDeferredStorage", () => {
 
   it("cancel drops a pending write without removing persisted state", () => {
     const base = createMockStorage();
-    const storage = createDebouncedStorage(base);
+    const storage = createDeferredStorage(base, serialize);
 
     storage.setItem("key", "v1");
     storage.cancel();

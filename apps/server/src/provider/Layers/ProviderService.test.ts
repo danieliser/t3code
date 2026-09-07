@@ -2395,7 +2395,7 @@ routing.layer("ProviderServiceLive routing", (it) => {
         provider: CODEX_DRIVER,
         providerInstanceId: codexInstanceId,
         threadId,
-        cwd: "/tmp/project-strict-resume",
+        cwd: fixtureCwd("project-strict-resume"),
         runtimeMode: "full-access",
       });
 
@@ -4551,6 +4551,7 @@ describe("agent browser access", () => {
               }),
             );
           }).pipe(Effect.orDie),
+        hasThreadById: () => Effect.die("unused"),
         getThreadDetailById: () => Effect.die("unused"),
         getThreadDetailSnapshot: () => Effect.die("unused"),
         searchThreads: () => Effect.die("unused"),

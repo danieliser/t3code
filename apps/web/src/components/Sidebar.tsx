@@ -1086,14 +1086,9 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   onUnarchive: (threadRef: ScopedThreadRef) => void;
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
-  changeRequestSnapshot: ThreadChangeRequestSnapshot | null;
   addonPresentation: SidebarThreadAddonPresentation | null;
   addonDepth: number;
   hasAddonChildren: boolean;
-  onChangeRequestSnapshot: (
-    threadKey: string,
-    snapshot: ThreadChangeRequestSnapshot | null,
-  ) => void;
 }) {
   const {
     isRenaming,
@@ -5255,8 +5250,6 @@ export default function Sidebar() {
                             onUnarchive={attemptUnarchive}
                             onUnpin={attemptUnpin}
                             onAcknowledgeWoke={acknowledgeWoke}
-                            changeRequestSnapshot={changeRequestSnapshotByKey.get(threadKey) ?? null}
-                            onChangeRequestSnapshot={setThreadChangeRequestSnapshot}
                             addonPresentation={addonPresentation}
                             addonDepth={addonMeta?.depth ?? 0}
                             hasAddonChildren={addonMeta?.hasChildren ?? false}
@@ -5439,7 +5432,8 @@ export default function Sidebar() {
                           className="flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-sidebar-muted-foreground/55 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
                         >
                           <PlusIcon aria-hidden className="size-4 shrink-0" />
-                          Show {Math.min(hiddenArchivedCount, SETTLED_TAIL_PAGE_COUNT)} more archived
+                          Show {Math.min(hiddenArchivedCount, SETTLED_TAIL_PAGE_COUNT)} more
+                          archived
                         </button>
                       </li>
                     ) : null}

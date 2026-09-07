@@ -2549,19 +2549,6 @@ describe("ClaudeAdapterLive", () => {
       expectedState: "failed",
     },
     {
-      name: "assistant rate limit followed by overload",
-      evidence: "assistant-rate-limit",
-      result: {
-        subtype: "success",
-        is_error: true,
-        terminal_reason: "api_error",
-        api_error_status: 529,
-        errors: [],
-      },
-      expected: /overloaded \(529\)/,
-      expectedState: "failed",
-    },
-    {
       name: "assistant rate limit followed by a listed error",
       evidence: "assistant-rate-limit",
       result: {

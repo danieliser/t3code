@@ -102,6 +102,7 @@ function snapshotUiState(state: UiState): UiState {
   return {
     projectExpandedById: { ...state.projectExpandedById },
     projectOrder: [...state.projectOrder],
+    sidebarProjectScopeKey: state.sidebarProjectScopeKey,
     threadLastVisitedAtById: { ...state.threadLastVisitedAtById },
     threadExplicitlyUnreadById: { ...state.threadExplicitlyUnreadById },
     threadChangedFilesExpandedById: Object.fromEntries(
@@ -210,6 +211,10 @@ function reconcileHydratedUiState(
     projectOrder: persistedValuesEqual(current.projectOrder, baseline.projectOrder)
       ? persisted.projectOrder
       : current.projectOrder,
+    sidebarProjectScopeKey:
+      current.sidebarProjectScopeKey === baseline.sidebarProjectScopeKey
+        ? persisted.sidebarProjectScopeKey
+        : current.sidebarProjectScopeKey,
     threadLastVisitedAtById: reconcilePersistedRecord(
       persisted.threadLastVisitedAtById,
       current.threadLastVisitedAtById,
