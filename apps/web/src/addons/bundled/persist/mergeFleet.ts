@@ -22,8 +22,11 @@ function bindingBoards(
         slug,
         title: boardTitle(slug),
         url: `http://127.0.0.1:5173/boards/${encodeURIComponent(slug)}`,
-        assignedItems: null,
-        completedItems: null,
+        membershipRole: null,
+        openItems: null,
+        readyItems: null,
+        activeItems: null,
+        triageItems: null,
       },
   );
 }
@@ -56,11 +59,6 @@ export function mergePersistBindings(
         activeTasks: 0,
         waitingTasks: 0,
         blockedTasks: null,
-      },
-      session: current?.session ?? {
-        claimedItems: null,
-        lapsedClaims: null,
-        completedItems: null,
       },
       boards: hasDurableIdentity ? current.boards : bindingBoards(binding, current),
     });

@@ -29,26 +29,24 @@ const agent = (overrides: Partial<PersistFleetAgent> = {}): PersistFleetAgent =>
     waitingTasks: 1,
     blockedTasks: 0,
   },
-  session: {
-    claimedItems: 4,
-    lapsedClaims: 0,
-    completedItems: 3,
-  },
   boards: [
     {
       boardId: "board-persistence",
       slug: "persistence",
       title: "PERSIST",
       url: "http://127.0.0.1:8803/boards/persistence",
-      assignedItems: 2,
-      completedItems: 3,
+      membershipRole: "lead",
+      openItems: 7,
+      readyItems: 4,
+      activeItems: 2,
+      triageItems: 1,
     },
   ],
   ...overrides,
 });
 
 describe("SidebarFleetAgentMeta", () => {
-  it("renders orchestrator identity, work evidence, session totals, and board links", () => {
+  it("renders orchestrator identity and current operational health without lifetime totals", () => {
     const markup = renderToStaticMarkup(
       <SidebarFleetAgentMeta agent={agent()} variant="card" childCount={2} />,
     );
@@ -58,8 +56,10 @@ describe("SidebarFleetAgentMeta", () => {
     expect(markup).toContain("Running");
     expect(markup).toContain("Online");
     expect(markup).toContain("2 agents");
-    expect(markup).toContain("4 claimed");
-    expect(markup).toContain("3 done");
+    expect(markup).toContain("7 open");
+    expect(markup).toContain("1 triage");
+    expect(markup).not.toContain("claimed");
+    expect(markup).not.toContain("done");
     expect(markup).toContain('href="http://127.0.0.1:8803/boards/persistence"');
     expect(markup).toContain("PERSIST");
     expect(markup).toContain("overflow-hidden");
@@ -77,7 +77,6 @@ describe("SidebarFleetAgentMeta", () => {
             waitingTasks: null,
             blockedTasks: null,
           },
-          session: { claimedItems: null, lapsedClaims: null, completedItems: null },
           boards: [],
         })}
         variant="compact"
@@ -86,7 +85,7 @@ describe("SidebarFleetAgentMeta", () => {
 
     expect(markup).toContain('data-testid="sidebar-fleet-agent-name"');
     expect(markup).toContain("Team agent");
-    expect(markup).toContain("Work unknown");
+    expect(markup).not.toContain("Work unknown");
     expect(markup).not.toContain("Waiting");
     expect(markup).not.toContain("Blocked");
   });
@@ -115,9 +114,36 @@ describe("SidebarFleetAgentMeta", () => {
     expect(markup).toContain("Managed team");
     expect(markup).toContain("2 agents");
     expect(markup).toContain('2</div><div class="text-[10px] text-[#9adbc8]">running');
-    expect(markup).toContain("4 claimed");
-    expect(markup).toContain('3</div><div class="text-[10px] text-[#9adbc8]">done');
+    expect(markup).toContain("Board health");
+    expect(markup).toContain("7 open");
+    expect(markup).toContain("4 ready");
+    expect(markup).toContain("2 active");
+    expect(markup).toContain("1 triage");
+    expect(markup).toContain("Lead");
+    expect(markup).not.toContain("claimed");
+    expect(markup).not.toContain("done");
     expect(markup).toContain('href="http://127.0.0.1:8803/boards/persistence"');
     expect(markup).toContain("jarvis-avatar.png");
+  });
+
+  it("omits unavailable work signals from the hover card", () => {
+    const markup = renderToStaticMarkup(
+      <SidebarFleetAgentHoverDetail
+        agent={agent({
+          work: {
+            state: "unknown",
+            activeTasks: 0,
+            waitingTasks: 0,
+            blockedTasks: null,
+          },
+        })}
+      />,
+    );
+
+    expect(markup).not.toContain("Work unknown");
+    expect(markup).not.toContain(">Work<");
+    expect(markup).not.toContain(">running<");
+    expect(markup).not.toContain(">waiting<");
+    expect(markup).toContain("Board health");
   });
 });

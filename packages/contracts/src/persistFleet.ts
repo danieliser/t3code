@@ -8,7 +8,7 @@ import { IsoDateTime, NonNegativeInt, ThreadId, TrimmedNonEmptyString } from "./
  * Identity and hierarchy are explicit facts supplied by PERSIST. Consumers
  * must not derive `role` or `parentAgentId` from handles, titles, or prompts.
  */
-export const PERSIST_FLEET_CONTRACT_VERSION = 1 as const;
+export const PERSIST_FLEET_CONTRACT_VERSION = 2 as const;
 
 export const PersistFleetRole = Schema.Literals([
   "commander",
@@ -53,21 +53,20 @@ export const PersistFleetWork = Schema.Struct({
 });
 export type PersistFleetWork = typeof PersistFleetWork.Type;
 
-export const PersistFleetSessionStats = Schema.Struct({
-  /** Claim-event count, not the expiring current board assignee column. */
-  claimedItems: Schema.NullOr(NonNegativeInt),
-  lapsedClaims: Schema.NullOr(NonNegativeInt),
-  completedItems: Schema.NullOr(NonNegativeInt),
-});
-export type PersistFleetSessionStats = typeof PersistFleetSessionStats.Type;
+export const PersistFleetBoardRole = Schema.Literals(["lead", "co_lead", "member", "observer"]);
+export type PersistFleetBoardRole = typeof PersistFleetBoardRole.Type;
 
 export const PersistFleetBoard = Schema.Struct({
   boardId: TrimmedNonEmptyString,
   slug: TrimmedNonEmptyString,
   title: TrimmedNonEmptyString,
   url: TrimmedNonEmptyString,
-  assignedItems: Schema.NullOr(NonNegativeInt),
-  completedItems: Schema.NullOr(NonNegativeInt),
+  membershipRole: Schema.NullOr(PersistFleetBoardRole),
+  /** All non-terminal board items: proposed + accepted + in progress. */
+  openItems: Schema.NullOr(NonNegativeInt),
+  readyItems: Schema.NullOr(NonNegativeInt),
+  activeItems: Schema.NullOr(NonNegativeInt),
+  triageItems: Schema.NullOr(NonNegativeInt),
 });
 export type PersistFleetBoard = typeof PersistFleetBoard.Type;
 
@@ -86,7 +85,6 @@ export const PersistFleetAgent = Schema.Struct({
   threadId: Schema.NullOr(ThreadId),
   mailbox: PersistFleetMailbox,
   work: PersistFleetWork,
-  session: PersistFleetSessionStats,
   boards: Schema.Array(PersistFleetBoard),
 });
 export type PersistFleetAgent = typeof PersistFleetAgent.Type;
@@ -138,6 +136,25 @@ export const PersistFleetApiResponse = Schema.Struct({
   }),
 });
 export type PersistFleetApiResponse = typeof PersistFleetApiResponse.Type;
+
+/** Existing PERSIST board-detail response composed into the fleet read model. */
+export const PersistBoardsApiResponse = Schema.Struct({
+  boards: Schema.Array(
+    Schema.Struct({
+      id: TrimmedNonEmptyString,
+      slug: TrimmedNonEmptyString,
+      title: TrimmedNonEmptyString,
+      members: Schema.Array(
+        Schema.Struct({
+          agentId: TrimmedNonEmptyString,
+          role: PersistFleetBoardRole,
+        }),
+      ),
+      items_by_state: Schema.Record(TrimmedNonEmptyString, NonNegativeInt),
+    }),
+  ),
+});
+export type PersistBoardsApiResponse = typeof PersistBoardsApiResponse.Type;
 
 export const PersistFleetAgentRegistrationInput = Schema.Struct({
   agentId: TrimmedNonEmptyString,

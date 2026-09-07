@@ -41,6 +41,18 @@ describe("projectPersistFleetSnapshot", () => {
     const snapshot = projectPersistFleetSnapshot(response(), {
       generatedAt: "2026-09-02T23:05:00.000Z",
       webUrl: "http://127.0.0.1:5173/",
+      boardBySlug: new Map([
+        [
+          "popup-maker-growth",
+          {
+            id: "board-growth",
+            slug: "popup-maker-growth",
+            title: "Popup Maker Growth & Product",
+            members: [{ agentId: "t3-developer", role: "co_lead" }],
+            items_by_state: { accepted: 8, in_progress: 2, proposed: 1, done: 12 },
+          },
+        ],
+      ]),
     });
 
     expect(snapshot.unknownFields).toEqual({ role: "not recorded", parentAgentId: "not recorded" });
@@ -55,13 +67,15 @@ describe("projectPersistFleetSnapshot", () => {
       lifecycle: "active",
       threadId: null,
       work: { state: "idle_waiting", activeTasks: 0, waitingTasks: 2, blockedTasks: null },
-      session: { claimedItems: 19, lapsedClaims: 7, completedItems: 8 },
       boards: [
         {
-          boardId: "popup-maker-growth",
-          title: "Popup Maker Growth",
-          assignedItems: null,
-          completedItems: null,
+          boardId: "board-growth",
+          title: "Popup Maker Growth & Product",
+          membershipRole: "co_lead",
+          openItems: 11,
+          readyItems: 8,
+          activeItems: 2,
+          triageItems: 1,
           url: "http://127.0.0.1:5173/boards/popup-maker-growth",
         },
       ],
@@ -88,6 +102,31 @@ describe("projectPersistFleetSnapshot", () => {
     });
     expect(snapshot.agents.map((agent) => agent.work.state)).toEqual(["active", "unknown"]);
   });
+
+  it("treats omitted sparse board-state counts as zero when board detail is available", () => {
+    const snapshot = projectPersistFleetSnapshot(response(), {
+      generatedAt: "2026-09-02T23:05:00.000Z",
+      boardBySlug: new Map([
+        [
+          "popup-maker-growth",
+          {
+            id: "board-growth",
+            slug: "popup-maker-growth",
+            title: "Popup Maker Growth & Product",
+            members: [{ agentId: "t3-developer", role: "lead" }],
+            items_by_state: { accepted: 10, done: 2 },
+          },
+        ],
+      ]),
+    });
+
+    expect(snapshot.agents[0]?.boards[0]).toMatchObject({
+      openItems: 10,
+      readyItems: 10,
+      activeItems: 0,
+      triageItems: 0,
+    });
+  });
 });
 
 describe("attachPersistThreadRoutes", () => {
@@ -113,7 +152,20 @@ effectIt.effect("reads the authenticated live fleet without returning the bearer
       HttpClient.HttpClient,
       HttpClient.make((request) => {
         authorization = request.headers.authorization;
-        return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(response())));
+        const payload = request.url.includes("/api/v1/boards?")
+          ? {
+              boards: [
+                {
+                  id: "board-growth",
+                  slug: "popup-maker-growth",
+                  title: "Popup Maker Growth & Product",
+                  members: [{ agentId: "t3-developer", role: "lead" }],
+                  items_by_state: { accepted: 4, in_progress: 1, proposed: 2 },
+                },
+              ],
+            }
+          : response();
+        return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(payload)));
       }),
     );
 
@@ -124,6 +176,13 @@ effectIt.effect("reads the authenticated live fleet without returning the bearer
 
     expect(authorization).toBe("Bearer test-owner-token");
     expect(snapshot.agents[0]?.agentId).toBe("t3-developer");
+    expect(snapshot.agents[0]?.boards[0]).toMatchObject({
+      membershipRole: "lead",
+      openItems: 7,
+      readyItems: 4,
+      activeItems: 1,
+      triageItems: 2,
+    });
     expect(snapshot).not.toHaveProperty("token");
   }),
 );

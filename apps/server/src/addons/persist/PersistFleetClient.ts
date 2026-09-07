@@ -1,5 +1,7 @@
 import {
   PERSIST_FLEET_CONTRACT_VERSION,
+  PersistBoardsApiResponse,
+  type PersistBoardsApiResponse as PersistBoardsApiResponseValue,
   PersistFleetApiResponse,
   type PersistFleetApiResponse as PersistFleetApiResponseValue,
   type PersistFleetSnapshot,
@@ -16,6 +18,8 @@ const DEFAULT_DAEMON_URL = "http://127.0.0.1:8803";
 const DEFAULT_WEB_URL = "http://127.0.0.1:5173";
 const PERSIST_FLEET_READ_TIMEOUT_MS = 2_000;
 
+type PersistBoardDetail = PersistBoardsApiResponseValue["boards"][number];
+
 function boardTitle(slug: string): string {
   return slug
     .split("-")
@@ -30,6 +34,7 @@ export function projectPersistFleetSnapshot(
     readonly generatedAt: string;
     readonly webUrl?: string | undefined;
     readonly threadIdByAgentId?: ReadonlyMap<string, ThreadId> | undefined;
+    readonly boardBySlug?: ReadonlyMap<string, PersistBoardDetail> | undefined;
   },
 ): PersistFleetSnapshot {
   const webUrl = (options.webUrl ?? DEFAULT_WEB_URL).replace(/\/$/, "");
@@ -69,20 +74,28 @@ export function projectPersistFleetSnapshot(
         // The public read model has no blocked-task count yet.
         blockedTasks: null,
       },
-      session: {
-        claimedItems: agent.boards.claims,
-        lapsedClaims: agent.boards.claims_lapsed,
-        completedItems: agent.boards.items_completed,
-      },
-      boards: agent.boards.slugs.map((slug) => ({
-        boardId: slug,
-        slug,
-        title: boardTitle(slug),
-        url: `${webUrl}/boards/${encodeURIComponent(slug)}`,
-        // The API currently supplies event totals per agent, not per board.
-        assignedItems: null,
-        completedItems: null,
-      })),
+      boards: agent.boards.slugs.map((slug) => {
+        const board = options.boardBySlug?.get(slug);
+        const states = board?.items_by_state;
+        const readyItems = board ? (states?.accepted ?? 0) : null;
+        const activeItems = board ? (states?.in_progress ?? 0) : null;
+        const triageItems = board ? (states?.proposed ?? 0) : null;
+        return {
+          boardId: board?.id ?? slug,
+          slug,
+          title: board?.title ?? boardTitle(slug),
+          url: `${webUrl}/boards/${encodeURIComponent(slug)}`,
+          membershipRole:
+            board?.members.find((member) => member.agentId === agent.agent_id)?.role ?? null,
+          openItems:
+            readyItems === null || activeItems === null || triageItems === null
+              ? null
+              : readyItems + activeItems + triageItems,
+          readyItems,
+          activeItems,
+          triageItems,
+        };
+      }),
     })),
   };
 }
@@ -157,9 +170,48 @@ export function readPersistFleet(input: { readonly includeOffline?: boolean | un
           new PersistFleetUnavailableError({ message: "PERSIST returned an invalid fleet shape." }),
       ),
     );
+    const boardSlugs = [
+      ...new Set(decoded.agents.flatMap((agent) => [...agent.boards.slugs])),
+    ].sort();
+    const boardEntries = yield* Effect.forEach(
+      boardSlugs,
+      (slug) =>
+        httpClient
+          .execute(
+            HttpClientRequest.get(
+              `${daemonUrl}/api/v1/boards?slug=${encodeURIComponent(slug)}`,
+            ).pipe(HttpClientRequest.acceptJson, HttpClientRequest.bearerToken(token)),
+          )
+          .pipe(
+            Effect.timeoutOption(PERSIST_FLEET_READ_TIMEOUT_MS),
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.succeed(null),
+                onSome: (boardResponse) =>
+                  boardResponse.status < 200 || boardResponse.status >= 300
+                    ? Effect.succeed(null)
+                    : HttpClientResponse.schemaBodyJson(PersistBoardsApiResponse)(
+                        boardResponse,
+                      ).pipe(
+                        Effect.map((body) => body.boards[0] ?? null),
+                        Effect.catch(() => Effect.succeed(null)),
+                      ),
+              }),
+            ),
+            Effect.catch(() => Effect.succeed(null)),
+            Effect.map((board) => [slug, board] as const),
+          ),
+      { concurrency: 4 },
+    );
+    const boardBySlug = new Map(
+      boardEntries.filter(
+        (entry): entry is readonly [string, PersistBoardDetail] => entry[1] !== null,
+      ),
+    );
     return projectPersistFleetSnapshot(decoded, {
       generatedAt: DateTime.formatIso(yield* DateTime.now),
       webUrl: process.env.PERSIST_WEB_URL,
+      boardBySlug,
     });
   });
 }

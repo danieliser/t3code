@@ -40,7 +40,6 @@ describe("mergePersistBindings", () => {
       threadId: ThreadId.make("thread-live"),
       mailbox: { state: "online", lastReadAt: null, lastSignalKind: null },
       work: { state: "active", activeTasks: 2, waitingTasks: 0, blockedTasks: null },
-      session: { claimedItems: 4, lapsedClaims: 1, completedItems: 3 },
       boards: [],
     };
     expect(mergePersistBindings([live], [binding])[0]).toMatchObject({
@@ -64,7 +63,6 @@ describe("mergePersistBindings", () => {
       threadId: ThreadId.make("thread-live"),
       mailbox: { state: "online", lastReadAt: null, lastSignalKind: null },
       work: { state: "active", activeTasks: 2, waitingTasks: 0, blockedTasks: null },
-      session: { claimedItems: 4, lapsedClaims: 1, completedItems: 3 },
       boards: [],
     };
 

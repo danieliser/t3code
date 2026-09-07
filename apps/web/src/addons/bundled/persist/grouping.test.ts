@@ -36,11 +36,6 @@ const agent = (overrides: Partial<PersistFleetAgent>): PersistFleetAgent => ({
     waitingTasks: null,
     blockedTasks: null,
   },
-  session: {
-    claimedItems: null,
-    lapsedClaims: null,
-    completedItems: null,
-  },
   boards: [],
   ...overrides,
 });

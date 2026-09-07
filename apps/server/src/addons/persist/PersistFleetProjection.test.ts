@@ -35,14 +35,13 @@ function fleetAgent(agentId: string): PersistFleetSnapshot["agents"][number] {
       waitingTasks: 0,
       blockedTasks: null,
     },
-    session: { claimedItems: 0, lapsedClaims: 0, completedItems: 0 },
     boards: [],
   };
 }
 
 function fleetSnapshot(): PersistFleetSnapshot {
   return {
-    contractVersion: 1,
+    contractVersion: 2,
     generatedAt,
     unknownFields: { role: "not registered", parentAgentId: "not registered" },
     agents: [fleetAgent("agent-good"), fleetAgent("agent-retry")],
