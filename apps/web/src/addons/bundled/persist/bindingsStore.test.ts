@@ -47,6 +47,27 @@ describe("commitPersistThreadBinding", () => {
     expect(usePersistBindingsStore.getState().byThreadId).toEqual({});
   });
 
+  it("stores an explicitly parented orchestrator binding", () => {
+    commitPersistThreadBinding({
+      threadRef: threadRef("thread-orchestrator"),
+      payload: {
+        enabled: true,
+        agentId: "growth-orchestrator",
+        displayName: "Growth Orchestrator",
+        role: "orchestrator",
+        parentAgentId: "growth-commander",
+        boardSlugs: ["popup-maker-growth"],
+      },
+    });
+
+    expect(usePersistBindingsStore.getState().byThreadId).toEqual({
+      [scopedThreadKey(threadRef("thread-orchestrator"))]: expect.objectContaining({
+        role: "orchestrator",
+        parentAgentId: "growth-commander",
+      }),
+    });
+  });
+
   it("registers through the server addon API before committing the local route", async () => {
     const executeServerAction = vi.fn(async () => ({}));
     const payload = {

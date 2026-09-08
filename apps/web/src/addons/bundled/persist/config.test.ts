@@ -28,7 +28,7 @@ describe("PERSIST new-chat configuration", () => {
         agentId: " Growth Lead ",
         displayName: " Growth Lead ",
         role: "orchestrator",
-        parentAgentId: "must-not-survive",
+        parentAgentId: " growth-commander ",
         boardSlugsText: "persistence, popup-maker-growth, persistence",
       }),
     ).toEqual({
@@ -36,7 +36,7 @@ describe("PERSIST new-chat configuration", () => {
       agentId: "growth-lead",
       displayName: "Growth Lead",
       role: "orchestrator",
-      parentAgentId: null,
+      parentAgentId: "growth-commander",
       boardSlugs: ["persistence", "popup-maker-growth"],
     });
   });

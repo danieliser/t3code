@@ -31,7 +31,9 @@ import type {
 import {
   DEFAULT_PERSIST_NEW_CHAT_CONFIG,
   normalizePersistAgentId,
+  persistParentRoleAllowed,
   persistNewChatConfigIssue,
+  persistRoleAllowsParent,
 } from "./config";
 import {
   clearPersistNewChatConfig,
@@ -61,14 +63,19 @@ function PersistNewChatControl(props: { readonly context: ComposerAddonContext }
   const setConfig = usePersistNewChatStore((state) => state.setConfig);
   const fleet = useAtomValue(primaryPersistFleetAtom);
   const bindings = usePersistBindingsStore((state) => state.byThreadId);
-  const orchestrators = useMemo(
+  const normalizedAgentId = normalizePersistAgentId(config.agentId);
+  const parentCandidates = useMemo(
     () =>
       (fleet?.agents ?? [])
-        .filter((agent) => agent.role === "orchestrator")
+        .filter(
+          (agent) =>
+            agent.agentId !== normalizedAgentId &&
+            agent.lifecycle !== "retired" &&
+            persistParentRoleAllowed(config.role, agent.role),
+        )
         .sort((left, right) => left.displayName.localeCompare(right.displayName)),
-    [fleet],
+    [config.role, fleet, normalizedAgentId],
   );
-  const normalizedAgentId = normalizePersistAgentId(config.agentId);
   const routeAlreadyExists =
     normalizedAgentId !== "" &&
     ((fleet?.agents ?? []).some(
@@ -169,7 +176,7 @@ function PersistNewChatControl(props: { readonly context: ComposerAddonContext }
                   if (role === null) return;
                   setConfig(context.targetKey, {
                     role,
-                    ...(role === "team_member" ? {} : { parentAgentId: null }),
+                    ...(persistRoleAllowsParent(role) ? {} : { parentAgentId: null }),
                   });
                 }}
               >
@@ -186,15 +193,21 @@ function PersistNewChatControl(props: { readonly context: ComposerAddonContext }
               </Select>
             </div>
 
-            {config.role === "team_member" ? (
+            {persistRoleAllowsParent(config.role) ? (
               <div className="space-y-1.5">
-                <Label htmlFor={`${parentListId}-parent`}>Parent orchestrator ID</Label>
+                <Label htmlFor={`${parentListId}-parent`}>
+                  {config.role === "orchestrator" ? "Parent commander ID" : "Parent fleet agent ID"}
+                </Label>
                 <Input
                   nativeInput
                   id={`${parentListId}-parent`}
                   list={parentListId}
                   value={config.parentAgentId ?? ""}
-                  placeholder="Select or enter an exact agent ID"
+                  placeholder={
+                    config.role === "orchestrator"
+                      ? "Optional: select or enter a commander ID"
+                      : "Select or enter an exact agent ID"
+                  }
                   onChange={(event) =>
                     setConfig(context.targetKey, {
                       parentAgentId: event.currentTarget.value.trim() || null,
@@ -202,14 +215,16 @@ function PersistNewChatControl(props: { readonly context: ComposerAddonContext }
                   }
                 />
                 <datalist id={parentListId}>
-                  {orchestrators.map((agent) => (
+                  {parentCandidates.map((agent) => (
                     <option key={agent.agentId} value={agent.agentId}>
                       {agent.displayName}
                     </option>
                   ))}
                 </datalist>
                 <p className="text-xs text-muted-foreground">
-                  Suggestions include only agents explicitly typed as orchestrators by PERSIST.
+                  {config.role === "orchestrator"
+                    ? "Only agents explicitly typed as commanders are valid parents. Leave blank for a top-level orchestrator."
+                    : "Valid parents are explicitly typed commanders, orchestrators, and coordinators."}
                 </p>
               </div>
             ) : null}

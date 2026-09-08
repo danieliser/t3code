@@ -22,6 +22,23 @@ export const DEFAULT_PERSIST_NEW_CHAT_CONFIG: PersistNewChatDraftConfig = {
   boardSlugsText: "",
 };
 
+export function persistRoleAllowsParent(role: PersistFleetRole): boolean {
+  return role === "orchestrator" || role === "team_member";
+}
+
+export function persistParentRoleAllowed(
+  role: PersistFleetRole,
+  parentRole: PersistFleetRole | null,
+): boolean {
+  if (role === "orchestrator") return parentRole === "commander";
+  if (role === "team_member") {
+    return (
+      parentRole === "commander" || parentRole === "orchestrator" || parentRole === "coordinator"
+    );
+  }
+  return false;
+}
+
 export function parsePersistBoardSlugs(value: string): readonly string[] {
   return Array.from(
     new Set(
@@ -49,7 +66,7 @@ export function resolvePersistNewChatConfig(
     agentId: normalizePersistAgentId(draft.agentId),
     displayName: draft.displayName.trim(),
     role: draft.role,
-    parentAgentId: draft.role === "team_member" ? draft.parentAgentId?.trim() || null : null,
+    parentAgentId: persistRoleAllowsParent(draft.role) ? draft.parentAgentId?.trim() || null : null,
     boardSlugs: parsePersistBoardSlugs(draft.boardSlugsText),
   };
 }

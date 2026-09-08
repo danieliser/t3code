@@ -9,7 +9,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "../../../lib/storage";
-import type { PersistNewChatConfig } from "./config";
+import { persistRoleAllowsParent, type PersistNewChatConfig } from "./config";
 
 export interface PersistThreadBinding extends PersistNewChatConfig {
   /** Undefined only for bindings written by the v1 unscoped store. */
@@ -48,7 +48,7 @@ function decodeBindingPayload(payload: unknown): PersistNewChatConfig | null {
   }
   const role = value.role as PersistFleetRole;
   const parentAgentId =
-    role === "team_member" && typeof value.parentAgentId === "string"
+    persistRoleAllowsParent(role) && typeof value.parentAgentId === "string"
       ? value.parentAgentId.trim() || null
       : null;
   if (role === "team_member" && parentAgentId === null) return null;
