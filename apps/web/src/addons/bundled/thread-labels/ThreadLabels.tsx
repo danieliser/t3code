@@ -237,6 +237,7 @@ function ThreadLabelPickerDialogContent({
   };
 
   const isEditing = mode === "edit";
+  const managing = threadKeys.length === 0;
 
   return (
     <>
@@ -244,11 +245,19 @@ function ThreadLabelPickerDialogContent({
         <DialogPopup className="max-w-sm overflow-hidden" data-testid="thread-label-picker">
           <DialogHeader className="gap-1 px-4 pt-4 pr-12 pb-2">
             <DialogTitle className="text-base leading-5">
-              {mode === "pick" ? "Add label" : isEditing ? "Edit label" : "Create label"}
+              {mode === "pick"
+                ? managing
+                  ? "Manage labels"
+                  : "Add label"
+                : isEditing
+                  ? "Edit label"
+                  : "Create label"}
             </DialogTitle>
             <DialogDescription className="truncate text-xs" title={targetLabel}>
               {mode === "pick"
-                ? `Choose labels for ${targetLabel}.`
+                ? managing
+                  ? "Create, rename, recolor or delete labels."
+                  : `Choose labels for ${targetLabel}.`
                 : isEditing
                   ? "Rename the label or change its color."
                   : "Create a reusable label for your chats."}
@@ -286,11 +295,15 @@ function ThreadLabelPickerDialogContent({
                       >
                         <button
                           type="button"
-                          role="checkbox"
-                          aria-checked={partlySelected ? "mixed" : allSelected}
+                          role={managing ? undefined : "checkbox"}
+                          aria-checked={
+                            managing ? undefined : partlySelected ? "mixed" : allSelected
+                          }
                           className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 self-stretch rounded-md px-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                           onClick={() =>
-                            threadLabelApi.setAssigned(threadKeys, label.id, !allSelected)
+                            managing
+                              ? startEdit(label)
+                              : threadLabelApi.setAssigned(threadKeys, label.id, !allSelected)
                           }
                           data-testid={`thread-label-option-${label.id}`}
                         >
@@ -300,20 +313,22 @@ function ThreadLabelPickerDialogContent({
                             style={{ backgroundColor: label.color }}
                           />
                           <span className="min-w-0 flex-1 truncate text-sm">{label.name}</span>
-                          <span
-                            className={cn(
-                              "inline-flex size-4 shrink-0 items-center justify-center rounded-[5px] border",
-                              allSelected || partlySelected
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-input bg-background/80",
-                            )}
-                          >
-                            {partlySelected ? (
-                              <MinusIcon className="size-2.5" aria-hidden />
-                            ) : allSelected ? (
-                              <CheckIcon className="size-2.5" aria-hidden />
-                            ) : null}
-                          </span>
+                          {!managing ? (
+                            <span
+                              className={cn(
+                                "inline-flex size-4 shrink-0 items-center justify-center rounded-[5px] border",
+                                allSelected || partlySelected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-input bg-background/80",
+                              )}
+                            >
+                              {partlySelected ? (
+                                <MinusIcon className="size-2.5" aria-hidden />
+                              ) : allSelected ? (
+                                <CheckIcon className="size-2.5" aria-hidden />
+                              ) : null}
+                            </span>
+                          ) : null}
                         </button>
                         <Button
                           type="button"
@@ -464,7 +479,13 @@ function ThreadLabelPickerDialogContent({
                   onClick={isEditing ? handleSave : handleCreate}
                   data-testid={isEditing ? "save-thread-label" : "submit-thread-label"}
                 >
-                  {isEditing ? "Save" : duplicateLabel ? "Apply" : "Create & apply"}
+                  {isEditing
+                    ? "Save"
+                    : managing
+                      ? "Create label"
+                      : duplicateLabel
+                        ? "Apply"
+                        : "Create & apply"}
                 </Button>
               </DialogFooter>
             </>

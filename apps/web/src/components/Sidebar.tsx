@@ -3212,29 +3212,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         fixedHeader={
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
-              filterMenu={
-                <SidebarFilterMenu
-                  filters={sidebarThreadFilters}
-                  showGroupByProject={boringSidebarEnabled}
-                  environments={[...environmentLabelById].map(([environmentId, label]) => ({
-                    environmentId,
-                    label,
-                  }))}
-                  projects={projectGroups.map((project) => ({
-                    id: project.projectKey,
-                    label: project.displayName,
-                    projectKeys: project.memberProjectRefs.map(
-                      (ref) => `${ref.environmentId}:${ref.projectId}`,
-                    ),
-                  }))}
-                  providerSources={providerFilterState.sources}
-                  archiveLoading={archiveLoading}
-                  archiveError={archiveError}
-                  onFiltersChange={(filters) =>
-                    updateClientSettings({ sidebarThreadFilters: filters })
-                  }
-                />
-              }
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
@@ -3434,6 +3411,40 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         );
                       }}
                     </ComboboxList>
+                    <div className="flex items-center justify-between border-t border-border p-2">
+                      <SidebarFilterMenu
+                        triggerLabel="More filters"
+                        filters={sidebarThreadFilters}
+                        showGroupByProject={boringSidebarEnabled}
+                        environments={[...environmentLabelById].map(([environmentId, label]) => ({
+                          environmentId,
+                          label,
+                        }))}
+                        projects={projectGroups.map((project) => ({
+                          id: project.projectKey,
+                          label: project.displayName,
+                          projectKeys: project.memberProjectRefs.map(
+                            (ref) => `${ref.environmentId}:${ref.projectId}`,
+                          ),
+                        }))}
+                        providerSources={providerFilterState.sources}
+                        archiveLoading={archiveLoading}
+                        archiveError={archiveError}
+                        onFiltersChange={(filters) =>
+                          updateClientSettings({ sidebarThreadFilters: filters })
+                        }
+                      />
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          dispatchProjectScopeMenu({ type: "open-changed", open: false });
+                          setLabelTarget({ threadKeys: [], targetLabel: "Manage labels" });
+                        }}
+                      >
+                        Manage labels
+                      </Button>
+                    </div>
                   </ComboboxPopup>
                 </Combobox>
               }

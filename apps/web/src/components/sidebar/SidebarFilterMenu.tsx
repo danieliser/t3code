@@ -79,6 +79,7 @@ export function SidebarFilterMenu({
   onFiltersChange,
   showGroupByProject = true,
   triggerClassName,
+  triggerLabel,
 }: {
   filters: SidebarThreadFilters;
   environments: ReadonlyArray<SidebarFilterEnvironmentOption>;
@@ -89,6 +90,7 @@ export function SidebarFilterMenu({
   onFiltersChange: (filters: SidebarThreadFilters) => void;
   showGroupByProject?: boolean;
   triggerClassName?: string;
+  triggerLabel?: string;
 }) {
   const filtersActive = hasActiveSidebarThreadFilters(filters);
   const statusFilterActive =
@@ -101,7 +103,7 @@ export function SidebarFilterMenu({
         <TooltipTrigger
           render={
             <MenuTrigger
-              aria-label="Filter sidebar threads"
+              aria-label={triggerLabel ?? "Filter sidebar threads"}
               data-testid="sidebar-filter-trigger"
               className={cn(
                 "relative inline-flex h-6 min-w-6 cursor-pointer items-center justify-center rounded-md px-[calc(--spacing(1)-1px)] transition-colors hover:bg-accent hover:text-foreground",
@@ -112,6 +114,7 @@ export function SidebarFilterMenu({
           }
         >
           <ListFilterIcon className="size-3.5" />
+          {triggerLabel ? <span className="px-1 text-xs">{triggerLabel}</span> : null}
           {filtersActive ? (
             <span className="absolute right-0.5 bottom-0.5 size-1.5 rounded-full bg-primary ring-1 ring-sidebar" />
           ) : null}
