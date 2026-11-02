@@ -125,14 +125,14 @@ const PI_DRIVER_KIND = ProviderDriverKind.make("pi");
 const ACP_REGISTRY_DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
 const OPENCODE_DRIVER_KIND = ProviderDriverKind.make("opencode");
 
-export const DEFAULT_MODEL = "gpt-6-astra";
+export const DEFAULT_MODEL = "gpt-6.1-sol";
 
-/** First model present in model/list wins; otherwise use Codex's isDefault. */
-export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
-  DEFAULT_MODEL,
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-];
+/**
+ * Codex default-model preference, most preferred first. The provider snapshot
+ * marks the first of these present in the live `model/list` response as
+ * default; when none are available, Codex's own `isDefault` flag wins.
+ */
+export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [DEFAULT_MODEL, "gpt-6-luna"];
 export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-6-luna";
 /** Keep the official Antigravity session's current model. Never send this ID to ACP. */
 export const ANTIGRAVITY_DEFAULT_MODEL = "antigravity-default";
@@ -143,7 +143,7 @@ export const MUSE_DEFAULT_MODEL = "default";
 
 export const DEFAULT_MODEL_BY_PROVIDER: Partial<Record<ProviderDriverKind, string>> = {
   [CODEX_DRIVER_KIND]: DEFAULT_MODEL,
-  [CLAUDE_DRIVER_KIND]: "claude-opus-5-5",
+  [CLAUDE_DRIVER_KIND]: "claude-sonnet-5-5",
   [CURSOR_DRIVER_KIND]: "auto",
   // Product slug meaning the current session model, never an ACP model id.
   [GROK_DRIVER_KIND]: "grok-build",

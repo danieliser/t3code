@@ -17,6 +17,26 @@ import { vi } from "vite-plus/test";
 
 vi.mock("electron", async (importOriginal) => ({
   ...(await importOriginal<typeof import("electron")>()),
+  ipcMain: (() => {
+    const listeners = new Map<string, Set<(...args: readonly unknown[]) => void>>();
+    return {
+      emit: (eventName: string, ...args: readonly unknown[]) => {
+        for (const listener of listeners.get(eventName) ?? []) {
+          listener(...args);
+        }
+      },
+      on: vi.fn((eventName: string, listener: (...args: readonly unknown[]) => void) => {
+        const eventListeners = listeners.get(eventName) ?? new Set();
+        eventListeners.add(listener);
+        listeners.set(eventName, eventListeners);
+      }),
+      removeListener: vi.fn(
+        (eventName: string, listener: (...args: readonly unknown[]) => void) => {
+          listeners.get(eventName)?.delete(listener);
+        },
+      ),
+    };
+  })(),
   session: {
     fromPartition: vi.fn(() => ({
       getUserAgent: vi.fn(() => "Mozilla/5.0 Electron/41.5.0 t3code/1.2.3"),
@@ -45,7 +65,11 @@ import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
-import { SNAP_SHOT_EVENT_CHANNEL } from "../ipc/channels.ts";
+import {
+  SNAP_SHOT_EVENT_CHANNEL,
+  RENDERER_STATE_FLUSH_COMPLETE_CHANNEL,
+  REQUEST_RENDERER_STATE_FLUSH_CHANNEL,
+} from "../ipc/channels.ts";
 import * as DesktopServerExposure from "../backend/DesktopServerExposure.ts";
 import * as DesktopWindow from "./DesktopWindow.ts";
 import * as PreviewManager from "../preview/Manager.ts";
@@ -70,13 +94,13 @@ function makeFakeBrowserWindow() {
   const webContents = {
     copyImageAt: vi.fn(),
     focus: vi.fn(),
-    isDestroyed: vi.fn(() => false),
     getURL: vi.fn(() => "t3code-dev://app/"),
     getZoomLevel: vi.fn(() => zoomLevel),
     getZoomFactor: vi.fn(() => 1.2 ** zoomLevel),
     setZoomLevel: vi.fn((level: number) => {
       zoomLevel = level;
     }),
+    isDestroyed: vi.fn(() => false),
     isLoadingMainFrame: vi.fn(() => false),
     navigationHistory: {
       canGoBack: vi.fn(() => true),
@@ -130,6 +154,7 @@ function makeFakeBrowserWindow() {
 
   return {
     window: window as unknown as Electron.BrowserWindow,
+    close: window.close,
     getBounds: window.getBounds,
     getNormalBounds: window.getNormalBounds,
     isDestroyed: window.isDestroyed,
@@ -150,6 +175,7 @@ function makeFakeBrowserWindow() {
     setAutoHideCursor: window.setAutoHideCursor,
     setFullScreen: window.setFullScreen,
     setOpacity: window.setOpacity,
+    webContents,
     webContentsListeners,
     webContentsOnce: webContents.once,
     windowListeners,
@@ -200,17 +226,20 @@ const layerElectronTheme = Layer.succeed(ElectronTheme.ElectronTheme, {
   onUpdated: () => Effect.void,
 } satisfies ElectronTheme.ElectronTheme["Service"]);
 
-const layerDesktopEnvironment = DesktopEnvironment.layer(environmentInput).pipe(
-  Layer.provide(
-    Layer.mergeAll(
-      NodeServices.layer,
-      DesktopConfig.layerTest({
-        T3CODE_PORT: "3773",
-        VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
-      }),
+const makeDesktopEnvironmentLayer = (platform: NodeJS.Platform = environmentInput.platform) =>
+  DesktopEnvironment.layer({ ...environmentInput, platform }).pipe(
+    Layer.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        DesktopConfig.layerTest({
+          T3CODE_PORT: "3773",
+          VITE_DEV_SERVER_URL: "http://127.0.0.1:5733",
+        }),
+      ),
     ),
-  ),
-);
+  );
+
+const layerDesktopEnvironment = makeDesktopEnvironmentLayer();
 
 const desktopWindowBoundsEquivalence = Schema.toEquivalence(
   DesktopAppSettings.DesktopWindowBoundsSchema,
@@ -224,6 +253,7 @@ function layerTest(input: {
   readonly desktopSettings?: DesktopAppSettings.DesktopSettings;
   readonly mainWindowBoundsUpdates?: DesktopAppSettings.DesktopWindowBounds[];
   readonly mainWindowMaximizedUpdates?: boolean[];
+  readonly platform?: NodeJS.Platform;
   readonly beforeMainWindowBoundsUpdate?: (
     bounds: DesktopAppSettings.DesktopWindowBounds,
   ) => Effect.Effect<void>;
@@ -305,7 +335,9 @@ function layerTest(input: {
           recordMetrics: () => Effect.void,
           shutdown: Effect.void,
         }),
-        layerDesktopEnvironment,
+        input.platform === undefined
+          ? layerDesktopEnvironment
+          : makeDesktopEnvironmentLayer(input.platform),
         layerDesktopAppSettings,
         layerDesktopClientSettings,
         layerDesktopServerExposure,
@@ -433,6 +465,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           DesktopState.layer,
           layerElectronApp,
           layerElectronMenu,
+          DesktopState.layer,
           Layer.succeed(ElectronShell.ElectronShell, {
             openExternal: () => Effect.succeed(true),
             openSystemSettings: () => Effect.succeed(true),
@@ -927,7 +960,19 @@ describe("DesktopWindow", () => {
         if (!close) {
           return yield* Effect.die("window close listener was not registered");
         }
-        close();
+        close({ preventDefault: vi.fn() });
+        yield* Effect.promise(() =>
+          vi.waitFor(() => {
+            assert.equal(fakeWindow.send.mock.calls.length, 1);
+          }),
+        );
+        const [, requestId] = fakeWindow.send.mock.calls[0] ?? [];
+        Electron.ipcMain.emit(
+          RENDERER_STATE_FLUSH_COMPLETE_CHANNEL,
+          { sender: fakeWindow.webContents },
+          requestId,
+          true,
+        );
         yield* Effect.promise(() => Promise.resolve());
 
         assert.deepEqual(mainWindowBoundsUpdates, [{ x: 220, y: 140, width: 1380, height: 920 }]);
@@ -965,7 +1010,19 @@ describe("DesktopWindow", () => {
           return yield* Effect.die("window lifecycle listeners were not registered");
         }
 
-        close();
+        close({ preventDefault: vi.fn() });
+        yield* Effect.promise(() =>
+          vi.waitFor(() => {
+            assert.equal(fakeWindow.send.mock.calls.length, 1);
+          }),
+        );
+        const [, requestId] = fakeWindow.send.mock.calls[0] ?? [];
+        Electron.ipcMain.emit(
+          RENDERER_STATE_FLUSH_COMPLETE_CHANNEL,
+          { sender: fakeWindow.webContents },
+          requestId,
+          true,
+        );
         yield* Effect.promise(() => Promise.resolve());
         assert.deepEqual(mainWindowBoundsUpdates, []);
 
@@ -1047,6 +1104,86 @@ describe("DesktopWindow", () => {
     }),
   );
 
+  it.effect("flushes renderer state before a macOS main window is destroyed", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = layerTest({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        platform: "darwin",
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        const close = fakeWindow.windowListeners.get("close");
+        if (!close) {
+          return yield* Effect.die("window close listener was not registered");
+        }
+        const preventDefault = vi.fn();
+        close({ preventDefault });
+
+        assert.equal(preventDefault.mock.calls.length, 1);
+        assert.equal(fakeWindow.close.mock.calls.length, 0);
+        yield* Effect.promise(() =>
+          vi.waitFor(() => {
+            assert.equal(fakeWindow.send.mock.calls.length, 1);
+          }),
+        );
+
+        const [channel, requestId] = fakeWindow.send.mock.calls[0] ?? [];
+        assert.equal(channel, REQUEST_RENDERER_STATE_FLUSH_CHANNEL);
+        Electron.ipcMain.emit(
+          RENDERER_STATE_FLUSH_COMPLETE_CHANNEL,
+          { sender: fakeWindow.webContents },
+          requestId,
+          true,
+        );
+        yield* Effect.promise(() =>
+          vi.waitFor(() => {
+            assert.equal(fakeWindow.close.mock.calls.length, 1);
+          }),
+        );
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("does not intercept window destruction after shutdown has started", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = layerTest({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        platform: "linux",
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        const state = yield* DesktopState.DesktopState;
+        yield* Ref.set(state.quitting, true);
+
+        const close = fakeWindow.windowListeners.get("close");
+        if (!close) {
+          return yield* Effect.die("window close listener was not registered");
+        }
+        const preventDefault = vi.fn();
+        close({ preventDefault });
+
+        assert.equal(preventDefault.mock.calls.length, 0);
+        assert.equal(fakeWindow.send.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
   it.effect("persists the current main window bounds before the window closes", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
@@ -1077,8 +1214,20 @@ describe("DesktopWindow", () => {
         if (!close) {
           return yield* Effect.die("window close listener was not registered");
         }
-        close();
+        close({ preventDefault: vi.fn() });
         yield* Deferred.await(writeStarted);
+        yield* Effect.promise(() =>
+          vi.waitFor(() => {
+            assert.equal(fakeWindow.send.mock.calls.length, 1);
+          }),
+        );
+        const [, requestId] = fakeWindow.send.mock.calls[0] ?? [];
+        Electron.ipcMain.emit(
+          RENDERER_STATE_FLUSH_COMPLETE_CHANNEL,
+          { sender: fakeWindow.webContents },
+          requestId,
+          true,
+        );
         fakeWindow.isDestroyed.mockReturnValue(true);
 
         const flushFiber = yield* desktopWindow.flushMainWindowBounds.pipe(

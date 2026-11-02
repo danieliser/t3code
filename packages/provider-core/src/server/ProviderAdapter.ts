@@ -635,6 +635,10 @@ export interface ProviderAdapterV2SessionRuntime {
     readonly runtimePolicy?: ProviderAdapterV2RuntimePolicy;
   }) => Effect.Effect<OrchestrationV2ProviderThread, ProviderAdapterV2Error>;
   /** False means the native protocol explicitly does not support history injection. */
+  readonly injectContext?: (input: {
+    readonly providerThread: OrchestrationV2ProviderThread;
+    readonly text: string;
+  }) => Effect.Effect<void, ProviderAdapterV2Error>;
   readonly injectHistory?: (
     input: ProviderAdapterV2HistoricalContext & {
       readonly providerThread: OrchestrationV2ProviderThread;

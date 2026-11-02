@@ -43,6 +43,10 @@ import {
   resolveMacPasskeySigningConfiguration,
   resolveMergedStageDependencies,
   resolveBuildOptions,
+  resolveDesktopUpdateChannel,
+  resolveDesktopProductName,
+  resolveDesktopBuildIconAssets,
+  resolveDesktopWebAssetBrand,
   stageWslRuntimeArchive,
   ancestorNodeModulesPaths,
   copyDirectoryPreservingSymlinks,
@@ -69,6 +73,7 @@ import {
   ReleasePackageManifestError,
   releasePackageFiles,
 } from "./update-release-package-versions.ts";
+import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { symlinksSupported } from "@t3tools/shared/testing/symlinks";
 
@@ -312,6 +317,52 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
       }
     }),
   );
+
+  it("resolves the dedicated nightly updater channel from nightly versions", () => {
+    assert.equal(resolveDesktopUpdateChannel("0.0.17-nightly.20260413.42"), "nightly");
+    assert.equal(resolveDesktopUpdateChannel("0.0.17-alpha.patched.20260805.107"), "nightly");
+    assert.equal(resolveDesktopUpdateChannel("0.0.17"), "latest");
+    assert.equal(
+      resolveDesktopUpdateChannel("0.0.45-alpha.patched-qualified.20261102.69"),
+      "nightly",
+    );
+    assert.equal(
+      resolveDesktopProductName("0.0.45-alpha.patched-qualified.20261102.69"),
+      "T3 Code (Alpha)",
+    );
+  });
+
+  it("switches desktop packaging product names to nightly for nightly builds", () => {
+    assert.equal(resolveDesktopProductName("0.0.17"), "T3 Code (Beta)");
+    assert.equal(resolveDesktopProductName("0.0.17-nightly.20260413.42"), "T3 Code (Nightly)");
+    assert.equal(resolveDesktopProductName("0.0.17-alpha.patched.20260805.107"), "T3 Code (Alpha)");
+  });
+
+  it("selects channel-specific desktop packaging icons", () => {
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17"), {
+      macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
+    });
+
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17-nightly.20260413.42"), {
+      macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.nightlyWindowsIconIco,
+    });
+
+    assert.deepStrictEqual(resolveDesktopBuildIconAssets("0.0.17-alpha.patched.20260723.60"), {
+      macIconPng: BRAND_ASSET_PATHS.alphaMacIconPng,
+      linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
+      windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
+    });
+  });
+
+  it("switches the bundled splash and favicon branding for nightly versions", () => {
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17"), "production");
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17-nightly.20260413.42"), "nightly");
+    assert.equal(resolveDesktopWebAssetBrand("0.0.17-alpha.patched.20260805.107"), "production");
+  });
 
   it.effect("restores manifests and releases the checkout lock after interruption", () =>
     Effect.gen(function* () {

@@ -49,6 +49,12 @@ import {
   ProviderSetupError,
   ProviderSetupInput,
 } from "./providerSetup.ts";
+import { PersistFleetSnapshot, PersistFleetUnavailableError } from "./persistFleet.ts";
+import {
+  ServerAddonActionError,
+  ServerAddonActionInput,
+  ServerAddonActionResult,
+} from "./addon.ts";
 
 import {
   AcpRegistryAcceptUrlAuthInput,
@@ -538,6 +544,8 @@ export const WS_METHODS = {
   serverReportClientActivity: "server.reportClientActivity",
   serverGetUsageSummary: "server.getUsageSummary",
   serverRefreshUsageRates: "server.refreshUsageRates",
+  serverGetPersistFleet: "server.getPersistFleet",
+  serverExecuteAddonAction: "server.executeAddonAction",
 
   scheduledTasksSubscribe: "scheduledTasks.subscribe",
   scheduledTasksUpsert: "scheduledTasks.upsert",
@@ -613,6 +621,7 @@ export const WS_METHODS = {
   subscribeServerLifecycle: "subscribeServerLifecycle",
   subscribeAuthAccess: "subscribeAuthAccess",
   subscribeResourceTelemetry: "subscribeResourceTelemetry",
+  subscribePersistFleet: "subscribePersistFleet",
 } as const;
 
 const WsServerUpsertKeybindingRpc = Rpc.make(WS_METHODS.serverUpsertKeybinding, {
@@ -637,6 +646,25 @@ const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   payload: Schema.Struct({}),
   success: ServerConfig,
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
+});
+
+export const WsServerGetPersistFleetRpc = Rpc.make(WS_METHODS.serverGetPersistFleet, {
+  payload: Schema.Struct({ includeOffline: Schema.optional(Schema.Boolean) }),
+  success: PersistFleetSnapshot,
+  error: Schema.Union([PersistFleetUnavailableError, EnvironmentAuthorizationError]),
+});
+
+export const WsServerExecuteAddonActionRpc = Rpc.make(WS_METHODS.serverExecuteAddonAction, {
+  payload: ServerAddonActionInput,
+  success: ServerAddonActionResult,
+  error: Schema.Union([ServerAddonActionError, EnvironmentAuthorizationError]),
+});
+
+export const WsSubscribePersistFleetRpc = Rpc.make(WS_METHODS.subscribePersistFleet, {
+  payload: Schema.Struct({ includeOffline: Schema.optional(Schema.Boolean) }),
+  success: PersistFleetSnapshot,
+  error: Schema.Union([PersistFleetUnavailableError, EnvironmentAuthorizationError]),
+  stream: true,
 });
 
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
@@ -2003,6 +2031,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsGuestShareCreateRpc,
   WsServerProbeRpc,
   WsServerGetConfigRpc,
+  WsServerGetPersistFleetRpc,
+  WsServerExecuteAddonActionRpc,
+  WsSubscribePersistFleetRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsProviderConsumeResetCreditRpc,

@@ -1,0 +1,153 @@
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
+import type { EnvironmentId, ScopedThreadRef, ThreadId } from "@t3tools/contracts";
+import type { ReactNode } from "react";
+
+export interface SidebarThreadAddonContributionInput {
+  /** Conflicting, missing, or cyclic addon parentage stays top-level so core threads remain reachable. */
+  readonly contributionId: string;
+  readonly threadRef: ScopedThreadRef;
+  readonly parentThreadRef: ScopedThreadRef | null;
+  readonly kind: "parent" | "child" | "standalone";
+  readonly compact: ReactNode;
+  readonly card: ReactNode;
+  /** Optional addon-owned detail rendered inside the core thread hover card. */
+  readonly hoverDetail?: ReactNode;
+  readonly cardClassName?: string;
+}
+
+export interface SidebarThreadAddonContribution extends SidebarThreadAddonContributionInput {
+  /** Supplied by the host from the trusted addon manifest. */
+  readonly addonId: string;
+}
+
+export interface SidebarThreadAddonPresentation {
+  readonly kind: "parent" | "child" | "standalone";
+  readonly contributions: readonly SidebarThreadAddonContribution[];
+}
+
+export interface SidebarThreadAddonMember<TThread> {
+  readonly thread: TThread;
+  readonly presentation: SidebarThreadAddonPresentation;
+  readonly children: readonly SidebarThreadAddonMember<TThread>[];
+}
+
+export interface SidebarThreadAddonGroup<TThread> {
+  readonly thread: TThread;
+  readonly presentation: SidebarThreadAddonPresentation | null;
+  readonly children: readonly SidebarThreadAddonMember<TThread>[];
+}
+
+export interface SidebarAddon {
+  readonly useThreadContributions: (
+    threads: readonly EnvironmentThreadShell[],
+  ) => readonly SidebarThreadAddonContributionInput[];
+}
+
+export function flattenSidebarAddonGroups<TThread>(
+  groups: readonly SidebarThreadAddonGroup<TThread>[],
+): readonly TThread[] {
+  const flattenMembers = (members: readonly SidebarThreadAddonMember<TThread>[]): TThread[] =>
+    members.flatMap((member) => [member.thread, ...flattenMembers(member.children)]);
+
+  return groups.flatMap((group) => [group.thread, ...flattenMembers(group.children)]);
+}
+
+function threadKey(thread: {
+  readonly environmentId: EnvironmentId;
+  readonly id: ThreadId;
+}): string {
+  return scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+}
+
+/** Conflicting, missing, or cyclic addon parentage stays top-level so core threads remain reachable. */
+export function groupThreadsWithAddonContributions<
+  TThread extends { readonly environmentId: EnvironmentId; readonly id: ThreadId },
+>(
+  threads: readonly TThread[],
+  contributions: readonly SidebarThreadAddonContribution[],
+): readonly SidebarThreadAddonGroup<TThread>[] {
+  const threadByKey = new Map(threads.map((thread) => [threadKey(thread), thread]));
+  const contributionsByThreadKey = new Map<string, SidebarThreadAddonContribution[]>();
+
+  for (const contribution of contributions) {
+    const key = scopedThreadKey(contribution.threadRef);
+    if (!threadByKey.has(key)) continue;
+    const existing = contributionsByThreadKey.get(key) ?? [];
+    existing.push(contribution);
+    contributionsByThreadKey.set(key, existing);
+  }
+
+  const proposedParentByChildKey = new Map<string, string>();
+  for (const [childKey, threadContributions] of contributionsByThreadKey) {
+    const claimedParentKeys = new Set(
+      threadContributions.flatMap((contribution) => {
+        if (contribution.kind !== "child" || contribution.parentThreadRef === null) return [];
+        const parentKey = scopedThreadKey(contribution.parentThreadRef);
+        return parentKey !== childKey ? [parentKey] : [];
+      }),
+    );
+    const claimedParentKey = claimedParentKeys.size === 1 ? [...claimedParentKeys][0] : undefined;
+    if (claimedParentKey !== undefined && threadByKey.has(claimedParentKey)) {
+      proposedParentByChildKey.set(childKey, claimedParentKey);
+    }
+  }
+
+  const attachedParentByChildKey = new Map<string, string>();
+  for (const [childKey, parentKey] of proposedParentByChildKey) {
+    const visited = new Set([childKey]);
+    let ancestorKey: string | undefined = parentKey;
+    let cyclic = false;
+    while (ancestorKey !== undefined) {
+      if (visited.has(ancestorKey)) {
+        cyclic = true;
+        break;
+      }
+      visited.add(ancestorKey);
+      ancestorKey = proposedParentByChildKey.get(ancestorKey);
+    }
+    if (!cyclic) attachedParentByChildKey.set(childKey, parentKey);
+  }
+
+  const childrenByParentKey = new Map<string, TThread[]>();
+  for (const thread of threads) {
+    const childKey = threadKey(thread);
+    const parentKey = attachedParentByChildKey.get(childKey);
+    if (parentKey === undefined) continue;
+    const children = childrenByParentKey.get(parentKey) ?? [];
+    children.push(thread);
+    childrenByParentKey.set(parentKey, children);
+  }
+
+  const buildMember = (thread: TThread): SidebarThreadAddonMember<TThread> => {
+    const key = threadKey(thread);
+    return {
+      thread,
+      presentation: {
+        kind: "child",
+        contributions: contributionsByThreadKey.get(key) ?? [],
+      },
+      children: (childrenByParentKey.get(key) ?? []).map(buildMember),
+    };
+  };
+
+  return threads.flatMap((thread) => {
+    const key = threadKey(thread);
+    if (attachedParentByChildKey.has(key)) return [];
+
+    const threadContributions = contributionsByThreadKey.get(key) ?? [];
+    const rootKind = threadContributions.some((contribution) => contribution.kind === "parent")
+      ? "parent"
+      : "standalone";
+    return [
+      {
+        thread,
+        presentation:
+          threadContributions.length === 0
+            ? null
+            : { kind: rootKind, contributions: threadContributions },
+        children: (childrenByParentKey.get(key) ?? []).map(buildMember),
+      },
+    ];
+  });
+}

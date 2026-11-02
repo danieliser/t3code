@@ -16,7 +16,8 @@ import { Navigate, useLocation, useNavigate } from "@tanstack/react-router";
 import { InfoIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
-import { useComposerDraftStore } from "../../composerDraftStore";
+import { composerTargetKey, useComposerDraftStore } from "../../composerDraftStore";
+import { clearComposerAddonSubmissionPayloads } from "../../addons";
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { persistClientSettingsUpdate, useClientSettings } from "../../hooks/useSettings";
 import { readLocalApi } from "../../localApi";
@@ -391,6 +392,7 @@ function ProjectDetail({
       );
       const projectDraftThread = draftStore.getDraftThreadByProjectRef(projectRef);
       if (projectDraftThread) {
+        void clearComposerAddonSubmissionPayloads(composerTargetKey(projectDraftThread.draftId));
         draftStore.clearDraftThread(projectDraftThread.draftId);
       }
       draftStore.clearProjectDraftThreadId(projectRef);

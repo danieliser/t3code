@@ -392,7 +392,9 @@ describe("DesktopUpdates", () => {
 
   it.effect("marks the backend stop for an install as an update restart", () => {
     let markersAtStop: ReadonlyArray<string> = [];
+    const installEvents: string[] = [];
     const harness = makeHarness({
+      installEvents,
       stopBackend: Effect.sync(() => {
         markersAtStop = [...harness.updateRestartMarkers];
       }),
@@ -409,6 +411,12 @@ describe("DesktopUpdates", () => {
         assert.isTrue((yield* updates.install).accepted);
         assert.deepEqual(markersAtStop, [
           environment.path.join(environment.baseDir, "runtime", DESKTOP_UPDATE_RESTART_MARKER_FILE),
+        ]);
+        assert.deepEqual(installEvents, [
+          "flush-renderer",
+          "flush-bounds",
+          "stop-backend",
+          "quit-and-install",
         ]);
       }),
     ).pipe(Effect.provide(Layer.merge(TestClock.layer(), harness.layer)));

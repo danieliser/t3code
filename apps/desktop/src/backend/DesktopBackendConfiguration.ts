@@ -82,6 +82,8 @@ const DESKTOP_BACKEND_ENV_NAMES = [
   "T3CODE_TAILSCALE_SERVE_PORT",
 ] as const;
 
+const DEFAULT_PACKAGED_BACKEND_NODE_OPTIONS = "--max-old-space-size=8192";
+
 // Windows forwards these variables into WSL only through WSLENV.
 const WSL_FORWARDED_ENV_NAMES = [
   "OPENAI_API_KEY",
@@ -533,6 +535,11 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       cwd: environment.backendCwd,
       env: {
         ...backendChildEnvPatch(),
+        ...(environment.isPackaged
+          ? {
+              NODE_OPTIONS: process.env.NODE_OPTIONS ?? DEFAULT_PACKAGED_BACKEND_NODE_OPTIONS,
+            }
+          : {}),
         ELECTRON_RUN_AS_NODE: "1",
         T3CODE_DESKTOP_SHELL_DISCOVERY_PENDING: "1",
         T3CODE_CLI_PATH: Option.getOrUndefined(input.cliPath),

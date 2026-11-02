@@ -21,13 +21,22 @@ import {
   type ContextMenuItem,
   type EnvironmentId,
   type ThreadId,
+  type ProviderDriverKind,
+  type ProviderInstanceId,
 } from "@t3tools/contracts";
-import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
+
 import type { AsyncResult } from "effect/reactivity";
 import {
   effectiveSnoozed,
   type ThreadSnoozeShell,
 } from "@t3tools/client-runtime/state/thread-settled";
+import {
+  SIDEBAR_THREAD_FILTER_STATUSES,
+  type SidebarProjectSortOrder,
+  type SidebarThreadFilters,
+  type SidebarThreadFilterStatus,
+  type SidebarThreadSortOrder,
+} from "@t3tools/contracts/settings";
 import {
   getThreadSortTimestamp,
   planPinnedReorder,
@@ -317,7 +326,9 @@ export function sidebarThreadKeyAtY(list: HTMLElement, y: number): string | null
 }
 
 export function resolveSidebarReorderableThreadKeys(input: {
-  readonly threads: ReadonlyArray<Pick<SidebarThreadSummary, "environmentId" | "id">>;
+  readonly threads: ReadonlyArray<
+    Pick<SidebarThreadSummary, "environmentId" | "id"> & { readonly archivedAt?: string | null }
+  >;
   readonly serverConfigs: ReadonlyMap<EnvironmentId, Pick<EnvironmentServerConfig, "environment">>;
   readonly connectedEnvironmentIds: readonly EnvironmentId[];
 }) {
@@ -328,6 +339,7 @@ export function resolveSidebarReorderableThreadKeys(input: {
   for (const thread of input.threads) {
     // Config is cached for offline rendering, so its presence does not make a row writable.
     if (
+      thread.archivedAt != null ||
       !connectedEnvironmentIds.has(thread.environmentId) ||
       !input.serverConfigs.has(thread.environmentId)
     ) {
@@ -534,7 +546,72 @@ type LogicalSidebarProject = SidebarProject & {
   }[];
 };
 
-type ThreadTraversalDirection = "previous" | "next";
+const sidebarProjectRefKey = (environmentId: string, projectId: string) =>
+  `${environmentId}:${projectId}`;
+
+type SidebarProjectVisibilityThread = {
+  environmentId: string;
+  projectId: string;
+  archivedAt: string | null;
+  runtime?: {
+    status: string;
+  } | null;
+};
+
+export function partitionSidebarProjectsByHiddenState<
+  TProject extends LogicalSidebarProject,
+  TThread extends SidebarProjectVisibilityThread,
+>(input: {
+  projects: readonly TProject[];
+  threads: readonly TThread[];
+  hiddenProjectKeys: readonly string[];
+}): { visibleProjects: TProject[]; hiddenProjects: TProject[] } {
+  const hiddenProjectKeys = new Set(input.hiddenProjectKeys);
+  const runningProjectKeys = new Set(
+    input.threads
+      .filter(
+        (thread) =>
+          thread.archivedAt === null &&
+          ["running", "starting", "preparing", "waiting", "queued"].includes(
+            thread.runtime?.status ?? "",
+          ),
+      )
+      .map((thread) => sidebarProjectRefKey(thread.environmentId, thread.projectId)),
+  );
+  const visibleProjects: TProject[] = [];
+  const hiddenProjects: TProject[] = [];
+
+  for (const project of input.projects) {
+    const projectKeys = project.memberProjectRefs.map((projectRef) =>
+      sidebarProjectRefKey(projectRef.environmentId, projectRef.projectId),
+    );
+    const isHidden =
+      projectKeys.length > 0 &&
+      projectKeys.every((projectKey) => hiddenProjectKeys.has(projectKey));
+    const hasRunningChat = projectKeys.some((projectKey) => runningProjectKeys.has(projectKey));
+    (isHidden && !hasRunningChat ? hiddenProjects : visibleProjects).push(project);
+  }
+
+  return { hiddenProjects, visibleProjects };
+}
+
+export function updateSidebarHiddenProjectKeys(input: {
+  hiddenProjectKeys: readonly string[];
+  projectRefs: readonly { environmentId: string; projectId: string }[];
+  hidden: boolean;
+}): string[] {
+  const projectKeys = input.projectRefs.map((projectRef) =>
+    sidebarProjectRefKey(projectRef.environmentId, projectRef.projectId),
+  );
+  if (input.hidden) {
+    return [...new Set([...input.hiddenProjectKeys, ...projectKeys])];
+  }
+
+  const keysToShow = new Set(projectKeys);
+  return input.hiddenProjectKeys.filter((projectKey) => !keysToShow.has(projectKey));
+}
+
+export type ThreadTraversalDirection = "previous" | "next";
 
 /** Exclude only successful deletions from shared-worktree checks. */
 export async function deleteSelectedThreadEntries<
@@ -561,6 +638,38 @@ export async function deleteSelectedThreadEntries<
   }
 
   return { deletedThreadKeys, firstFailure };
+}
+
+export async function archiveSelectedThreadEntries<
+  TEntry extends { readonly threadKey: string },
+  TResult extends { readonly _tag: "Success" | "Failure" },
+>(input: {
+  entries: readonly TEntry[];
+  archive: (entry: TEntry, onArchived: () => void) => Promise<TResult>;
+}): Promise<{
+  archivedThreadKeys: readonly string[];
+  mutationFailure: Extract<TResult, { readonly _tag: "Failure" }> | null;
+  followupFailures: readonly Extract<TResult, { readonly _tag: "Failure" }>[];
+}> {
+  const archivedThreadKeys: string[] = [];
+  const followupFailures: Extract<TResult, { readonly _tag: "Failure" }>[] = [];
+
+  for (const entry of input.entries) {
+    let didArchive = false;
+    const result = await input.archive(entry, () => {
+      didArchive = true;
+    });
+    if (didArchive || result._tag === "Success") archivedThreadKeys.push(entry.threadKey);
+    if (result._tag === "Success") continue;
+    const failure = result as Extract<TResult, { readonly _tag: "Failure" }>;
+    if (didArchive) {
+      followupFailures.push(failure);
+      continue;
+    }
+    return { archivedThreadKeys, mutationFailure: failure, followupFailures };
+  }
+
+  return { archivedThreadKeys, mutationFailure: null, followupFailures };
 }
 
 export function isSidebarHiddenThread(thread: Pick<SidebarThreadSummary, "lineage">): boolean {
@@ -599,10 +708,11 @@ export function filterSidebarV2VisibleThreads<
   threads: readonly T[],
   scopedProjectKeys: ReadonlySet<string> | null,
   delegatedUnderParent: ReadonlySet<string>,
+  includeArchived = false,
 ): T[] {
   return threads.filter(
     (thread) =>
-      thread.archivedAt === null &&
+      (includeArchived || thread.archivedAt === null) &&
       !isShownUnderParent(
         { environmentId: thread.environmentId, threadId: thread.id },
         thread.lineage,
@@ -704,6 +814,183 @@ export function hasUnseenCompletion(thread: ThreadStatusInput): boolean {
   const lastVisitedAt = Date.parse(thread.lastVisitedAt);
   if (Number.isNaN(lastVisitedAt)) return true;
   return completedAt > lastVisitedAt;
+}
+
+type SidebarThreadFilterInput = Pick<
+  SidebarThreadSummary,
+  | "archivedAt"
+  | "createdAt"
+  | "environmentId"
+  | "projectId"
+  | "hasActionableProposedPlan"
+  | "hasPendingApprovals"
+  | "hasPendingUserInput"
+  | "pendingSubagentRequest"
+  | "pendingGuestMessageCount"
+  | "interactionMode"
+  | "latestUserMessageAt"
+  | "latestRun"
+  | "runtime"
+  | "updatedAt"
+> & {
+  readonly isExplicitlyUnread?: boolean | undefined;
+};
+
+export const SIDEBAR_RECENT_WINDOW_DAYS = 7;
+const SIDEBAR_RECENT_WINDOW_MS = SIDEBAR_RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1_000;
+
+export function resolveSidebarThreadFilterStatuses(
+  statuses: ReadonlyArray<SidebarThreadFilterStatus>,
+): ReadonlyArray<SidebarThreadFilterStatus> {
+  return statuses.length === 0 ? SIDEBAR_THREAD_FILTER_STATUSES : statuses;
+}
+
+function latestValidTimestampMs(...timestamps: ReadonlyArray<string | null>): number | null {
+  let latestTimestampMs: number | null = null;
+  for (const timestamp of timestamps) {
+    if (timestamp === null) {
+      continue;
+    }
+    const timestampMs = Date.parse(timestamp);
+    if (Number.isNaN(timestampMs)) {
+      continue;
+    }
+    latestTimestampMs =
+      latestTimestampMs === null ? timestampMs : Math.max(latestTimestampMs, timestampMs);
+  }
+  return latestTimestampMs;
+}
+
+export function classifySidebarThreadFilterStatus(
+  thread: SidebarThreadFilterInput & { readonly lastVisitedAt?: string | undefined },
+): SidebarThreadFilterStatus {
+  const needsAttention =
+    thread.hasPendingApprovals ||
+    thread.hasPendingUserInput ||
+    thread.pendingSubagentRequest === "approval" ||
+    thread.pendingSubagentRequest === "user_input" ||
+    (thread.pendingGuestMessageCount ?? 0) > 0 ||
+    thread.runtime?.status === "failed" ||
+    (thread.interactionMode === "plan" &&
+      isLatestRunSettled(thread.latestRun, thread.runtime) &&
+      thread.hasActionableProposedPlan);
+  if (needsAttention) {
+    return "needs_attention";
+  }
+
+  if (
+    ["running", "starting", "preparing", "waiting", "queued"].includes(thread.runtime?.status ?? "")
+  ) {
+    return "working";
+  }
+
+  if (thread.isExplicitlyUnread) {
+    return "unread";
+  }
+
+  if (hasUnseenCompletion(thread)) {
+    return "unread";
+  }
+
+  return "done";
+}
+
+export function matchesSidebarThreadFilters(input: {
+  readonly thread: SidebarThreadFilterInput;
+  readonly lastVisitedAt?: string | null | undefined;
+  readonly isExplicitlyUnread?: boolean | undefined;
+  readonly providerDriverKind: ProviderDriverKind | null;
+  readonly filters: SidebarThreadFilters;
+  readonly nowMs?: number | undefined;
+}): boolean {
+  const { filters, thread } = input;
+  if (thread.archivedAt !== null && !filters.includeArchived) {
+    return false;
+  }
+  if (filters.environmentIds.length > 0 && !filters.environmentIds.includes(thread.environmentId)) {
+    return false;
+  }
+  if (
+    filters.projectKeys.length > 0 &&
+    !filters.projectKeys.includes(`${thread.environmentId}:${thread.projectId}`)
+  ) {
+    return false;
+  }
+  if (
+    filters.sources.length > 0 &&
+    (input.providerDriverKind === null || !filters.sources.includes(input.providerDriverKind))
+  ) {
+    return false;
+  }
+
+  const classifiedThread = {
+    ...thread,
+    ...(input.lastVisitedAt ? { lastVisitedAt: input.lastVisitedAt } : {}),
+    ...(input.isExplicitlyUnread ? { isExplicitlyUnread: true } : {}),
+  };
+  const status = classifySidebarThreadFilterStatus(classifiedThread);
+  const isUnread =
+    classifiedThread.isExplicitlyUnread === true || hasUnseenCompletion(classifiedThread);
+  if (filters.attentionOnly && status !== "needs_attention" && !isUnread) {
+    return false;
+  }
+  if (filters.recentOnly) {
+    const recentTimestampMs = latestValidTimestampMs(
+      thread.latestUserMessageAt,
+      thread.latestRun?.requestedAt ?? null,
+      thread.latestRun?.startedAt ?? null,
+      thread.latestRun?.completedAt ?? null,
+      thread.updatedAt,
+      thread.createdAt,
+    );
+    if (
+      recentTimestampMs === null ||
+      recentTimestampMs < (input.nowMs ?? Date.now()) - SIDEBAR_RECENT_WINDOW_MS
+    ) {
+      return false;
+    }
+  }
+  const selectedStatuses = resolveSidebarThreadFilterStatuses(filters.statuses);
+  return selectedStatuses.includes(status) || (isUnread && selectedStatuses.includes("unread"));
+}
+
+export function hasNarrowingSidebarThreadFilters(filters: SidebarThreadFilters): boolean {
+  const selectedStatuses = new Set(resolveSidebarThreadFilterStatuses(filters.statuses));
+  const includesEveryStatus = SIDEBAR_THREAD_FILTER_STATUSES.every((status) =>
+    selectedStatuses.has(status),
+  );
+  return (
+    filters.attentionOnly ||
+    filters.recentOnly ||
+    filters.environmentIds.length > 0 ||
+    filters.projectKeys.length > 0 ||
+    filters.sources.length > 0 ||
+    selectedStatuses.size !== SIDEBAR_THREAD_FILTER_STATUSES.length ||
+    !includesEveryStatus
+  );
+}
+
+export function hasActiveSidebarThreadFilters(filters: SidebarThreadFilters): boolean {
+  return filters.includeArchived || hasNarrowingSidebarThreadFilters(filters);
+}
+
+export function filterSidebarThreadsForActiveRoute<T>(input: {
+  readonly threads: ReadonlyArray<T>;
+  readonly activeThreadKey: string | null;
+  readonly getThreadKey: (thread: T) => string;
+  readonly matchesFilters: (thread: T) => boolean;
+}): T[] {
+  return input.threads.filter(
+    (thread) =>
+      input.getThreadKey(thread) === input.activeThreadKey || input.matchesFilters(thread),
+  );
+}
+
+export function sidebarProviderInstanceKey(
+  environmentId: EnvironmentId,
+  instanceId: ProviderInstanceId,
+): string {
+  return `${environmentId}\u0000${instanceId}`;
 }
 
 /** Unopened threads' failures still count as unseen, unlike completions. */
@@ -1190,6 +1477,60 @@ export function resolveThreadStatusPill(input: {
   }
 
   return null;
+}
+
+export function getVisibleThreadsForProject<T>(input: {
+  threads: readonly T[];
+  activeThreadKey: string | null;
+  getThreadKey: (thread: T) => string;
+  isThreadListExpanded: boolean;
+  previewLimit: number;
+}): {
+  hasHiddenThreads: boolean;
+  visibleThreads: T[];
+  hiddenThreads: T[];
+} {
+  const { activeThreadKey, getThreadKey, isThreadListExpanded, previewLimit, threads } = input;
+  const hasHiddenThreads = threads.length > previewLimit;
+
+  if (!hasHiddenThreads || isThreadListExpanded) {
+    return {
+      hasHiddenThreads,
+      hiddenThreads: [],
+      visibleThreads: [...threads],
+    };
+  }
+
+  const previewThreads = threads.slice(0, previewLimit);
+  if (
+    activeThreadKey === null ||
+    previewThreads.some((thread) => getThreadKey(thread) === activeThreadKey)
+  ) {
+    return {
+      hasHiddenThreads: true,
+      hiddenThreads: threads.slice(previewLimit),
+      visibleThreads: previewThreads,
+    };
+  }
+
+  const activeThread = threads.find((thread) => getThreadKey(thread) === activeThreadKey);
+  if (!activeThread) {
+    return {
+      hasHiddenThreads: true,
+      hiddenThreads: threads.slice(previewLimit),
+      visibleThreads: previewThreads,
+    };
+  }
+
+  const visibleThreadKeys = new Set(
+    [...previewThreads, activeThread].map((thread) => getThreadKey(thread)),
+  );
+
+  return {
+    hasHiddenThreads: true,
+    hiddenThreads: threads.filter((thread) => !visibleThreadKeys.has(getThreadKey(thread))),
+    visibleThreads: threads.filter((thread) => visibleThreadKeys.has(getThreadKey(thread))),
+  };
 }
 
 export function getFallbackThreadIdAfterDelete<

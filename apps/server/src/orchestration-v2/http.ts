@@ -1,5 +1,9 @@
+import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
+import * as Option from "effect/Option";
+import { injectPersistContext } from "../addons/persist/PersistContextInjection.ts";
 import {
   AuthOrchestrationReadScope,
+  AuthOrchestrationOperateScope,
   EnvironmentHttpApi,
   type OrchestrationProjectShell,
 } from "@t3tools/contracts";
@@ -55,6 +59,7 @@ export const layer = HttpApiBuilder.group(
   Effect.fnUntraced(function* (handlers) {
     const sql = yield* SqlClient.SqlClient;
     const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
+    const contextInjectionSessions = yield* Effect.serviceOption(ProviderSessionManagerV2);
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
     const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
     const projectStore = yield* ProjectStore.ProjectStoreV2;
@@ -161,6 +166,32 @@ export const layer = HttpApiBuilder.group(
     );
 
     return handlers
+      .handle(
+        "injectPersistContext",
+        Effect.fn("http.persist.injectContext")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          if (Option.isNone(contextInjectionSessions))
+            return yield* failEnvironmentInternal(
+              "internal_error",
+              new Error("Provider context injection is unavailable"),
+            );
+          return yield* injectPersistContext({
+            threadId: args.params.threadId,
+            ...args.payload,
+          }).pipe(
+            Effect.provideService(ProviderSessionManagerV2, contextInjectionSessions.value),
+            Effect.provideService(
+              ThreadManagementService.ThreadManagementService,
+              threadManagement,
+            ),
+            Effect.catchTags({
+              PersistContextInjectionError: (cause) =>
+                failEnvironmentInternal("internal_error", cause),
+            }),
+          );
+        }),
+      )
       .handle(
         "shellSnapshot",
         Effect.fn("environment.orchestration.shellSnapshot")(function* (args) {

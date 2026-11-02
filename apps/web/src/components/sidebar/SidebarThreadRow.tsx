@@ -1,3 +1,6 @@
+import { Fragment } from "react";
+import type { SidebarThreadAddonPresentation } from "../../addons";
+import { ThreadLabelBadgesForThread } from "../../addons/bundled/thread-labels/ThreadLabels";
 import { ThreadHoverCard, ThreadHoverCardPopup } from "../ThreadHoverCard";
 import { ThreadTerminalStatusButton } from "../ThreadStatusIndicators";
 import { discardComposerDraft } from "../../lib/discardComposerDraft";
@@ -241,6 +244,7 @@ function SidebarThreadTooltip({
   branchMismatch,
   terminalStatus,
   terminalProcessCount,
+  addonPresentation,
 }: {
   thread: SidebarThreadSummary;
   project: ProjectFaviconProject | null;
@@ -258,6 +262,7 @@ function SidebarThreadTooltip({
   } | null;
   terminalStatus: TerminalStatusIndicator | null;
   terminalProcessCount: number;
+  addonPresentation?: SidebarThreadAddonPresentation | null;
 }) {
   const driverKind = providerEntry?.driverKind ?? null;
   const previousProviderNames = thread.providerInstanceHistory
@@ -361,6 +366,13 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        {addonPresentation?.contributions.map((contribution) =>
+          contribution.hoverDetail == null ? null : (
+            <Fragment key={`${contribution.addonId}:${contribution.contributionId}`}>
+              {contribution.hoverDetail}
+            </Fragment>
+          ),
+        )}
       </ThreadHoverCard>
     </ThreadHoverCardPopup>
   );
@@ -534,6 +546,8 @@ function TopStatusIcon(props: { icon: keyof typeof TOP_STATUS_ICONS; className: 
 
 type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
+  addonPresentation?: SidebarThreadAddonPresentation | null;
+  addonDepth?: number;
   // "folder" is a one-line row inside a boring sidebar project folder;
   // "folder-multiline" adds the card's branch and PR line under it.
   variant: "card" | "slim" | "folder" | "folder-multiline";
@@ -822,6 +836,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       branchMismatch={branchMismatch}
       terminalStatus={terminalStatus}
       terminalProcessCount={terminalProcessCount}
+      addonPresentation={props.addonPresentation ?? null}
     />
   );
 
@@ -1046,6 +1061,12 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
       dir={textDirection(thread.title)}
     >
       {thread.title}
+      <ThreadLabelBadgesForThread threadKey={threadKey} compact />
+      {props.addonPresentation?.contributions.map((contribution) => (
+        <Fragment key={`${contribution.addonId}:${contribution.contributionId}`}>
+          {contribution.compact}
+        </Fragment>
+      ))}
     </span>
   );
   const accessibleTitle = isRenaming ? null : <span className="sr-only">{thread.title}</span>;
@@ -1200,6 +1221,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     return (
       <li
         data-thread-item={threadKey}
+        data-addon-depth={props.addonDepth || undefined}
         {...sortableRootProps}
         {...(fileDropHandlers ?? {})}
         className={cn(
@@ -1216,6 +1238,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 role="button"
                 tabIndex={0}
                 data-sidebar-row={threadKey}
+                style={
+                  props.addonDepth
+                    ? { marginInlineStart: `${Math.min(props.addonDepth, 4)}rem` }
+                    : undefined
+                }
                 data-sidebar-parent={props.navigationParent}
                 aria-label={accessibility.label}
                 aria-current={accessibility.current}
@@ -1395,6 +1422,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
 
   return (
     <li
+      data-addon-depth={props.addonDepth || undefined}
       data-thread-item={threadKey}
       {...sortableRootProps}
       {...(fileDropHandlers ?? {})}
@@ -1412,6 +1440,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               role="button"
               tabIndex={0}
               data-sidebar-row={threadKey}
+              style={
+                props.addonDepth
+                  ? { marginInlineStart: `${Math.min(props.addonDepth, 4)}rem` }
+                  : undefined
+              }
               data-sidebar-parent={props.navigationParent}
               aria-label={accessibility.label}
               aria-current={accessibility.current}

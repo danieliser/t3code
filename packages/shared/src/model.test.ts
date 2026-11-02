@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderInstanceId, type ModelCapabilities } from "@t3tools/contracts";
+import {
+  DEFAULT_MODEL,
+  PREFERRED_DEFAULT_CODEX_MODELS,
+  DEFAULT_MODEL_BY_PROVIDER,
+  ProviderDriverKind,
+  ProviderInstanceId,
+  type ModelCapabilities,
+} from "@t3tools/contracts";
 
 import {
   applyClaudePromptEffortPrefix,
@@ -226,4 +233,12 @@ describe("provider-reported option display", () => {
   ])("ignores reports after changing the model, instance, or option: %j", (selected) => {
     expect(getProviderOptionCurrentLabel(descriptor, selected, reported)).toBe("Unknown");
   });
+});
+
+it("uses the selected Alpha model defaults", () => {
+  expect(DEFAULT_MODEL).toBe("gpt-6.1-sol");
+  expect(PREFERRED_DEFAULT_CODEX_MODELS).toEqual(["gpt-6.1-sol", "gpt-6-luna"]);
+  expect(DEFAULT_MODEL_BY_PROVIDER[ProviderDriverKind.make("claudeAgent")]).toBe(
+    "claude-sonnet-5-5",
+  );
 });

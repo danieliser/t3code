@@ -78,6 +78,7 @@ function layerPool(labelRef: Ref.Ref<string>): Layer.Layer<DesktopBackendPool.De
           handleBackendNotReady: Effect.void,
           flushMainWindowBounds: Effect.void,
           prepareCaptureReveal: Effect.void,
+          flushRendererState: Effect.void,
           dispatchMenuAction: () => Effect.die("unexpected menu action"),
           dispatchSnapShotEvent: () => Effect.void,
           zoomMain: () => Effect.die("unexpected zoom"),

@@ -55,6 +55,10 @@ export const SET_SNAP_SHOT_ANIMATION_DESTINATION_CHANNEL =
   "desktop:set-snap-shot-animation-destination";
 export const DISMISS_SNAP_SHOT_ANIMATION_CHANNEL = "desktop:dismiss-snap-shot-animation";
 export const ACKNOWLEDGE_SNAP_SHOT_CHANNEL = "desktop:acknowledge-snap-shot";
+export const GET_RENDERER_STATE_CHANNEL = "desktop:get-renderer-state";
+export const SET_RENDERER_STATE_CHANNEL = "desktop:set-renderer-state";
+export const REQUEST_RENDERER_STATE_FLUSH_CHANNEL = "desktop:request-renderer-state-flush";
+export const RENDERER_STATE_FLUSH_COMPLETE_CHANNEL = "desktop:renderer-state-flush-complete";
 export const GET_CONNECTION_CATALOG_CHANNEL = "desktop:get-connection-catalog";
 export const SET_CONNECTION_CATALOG_CHANNEL = "desktop:set-connection-catalog";
 export const DISCOVER_SSH_HOSTS_CHANNEL = "desktop:discover-ssh-hosts";

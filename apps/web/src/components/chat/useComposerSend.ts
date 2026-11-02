@@ -1,5 +1,9 @@
 import { isClearComposerCommand, parseSideChatCommand } from "@t3tools/shared/composerTrigger";
 import { armFreshSession, disarmFreshSession, readFreshSessionArm } from "./freshSessionArms";
+import { commitComposerAddonSubmissionPayloads } from "../../addons";
+import { composerTargetKey } from "../../composerDraftStore";
+import { serverEnvironment } from "../../state/server";
+import { useAtomCommand } from "../../state/use-atom-command";
 import {
   mergeDirectPreviewAnnotation,
   resolveBackgroundDraftWorkspaceOptions,
@@ -339,6 +343,16 @@ export function useComposerSend(input: ComposerSendInput) {
     handleNewThreadInActiveProject,
     persistThreadSettingsForNextTurn,
   } = input;
+  const executeAddonAction = useAtomCommand(serverEnvironment.executeAddonAction, {
+    reportFailure: false,
+  });
+  const composerAddonHost = {
+    executeServerAction: async (input: import("@t3tools/contracts").ServerAddonActionInput) => {
+      const result = await executeAddonAction({ environmentId, input });
+      if (result._tag === "Failure") throw squashAtomCommandFailure(result);
+      return result.value.payload;
+    },
+  };
   const linkedEnvironments = useLinkedEnvironments(environmentId);
   const handleNewThread = useNewThreadHandler();
   const navigate = useNavigate();
@@ -596,7 +610,22 @@ export function useComposerSend(input: ComposerSendInput) {
       selectedModelSelection: ctxSelectedModelSelection,
       interactionMode: sendInteractionMode,
       interactionModeEnabled: sendInteractionModeEnabled,
+      addonSubmission,
+      addonBlockingIssue,
     } = sendCtx;
+    const addonReadFailure = addonSubmission.failures[0];
+    if (addonBlockingIssue !== null || addonReadFailure !== undefined) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Complete addon setup before sending",
+          description:
+            addonBlockingIssue ??
+            `Could not read the '${addonReadFailure?.addonId ?? "unknown"}' addon state.`,
+        }),
+      );
+      return;
+    }
     const { images: composerImages, previewAnnotations: composerPreviewAnnotations } =
       mergeDirectPreviewAnnotation({
         images: sendContextImages,
@@ -1416,6 +1445,24 @@ export function useComposerSend(input: ComposerSendInput) {
         setKeepFullHistory(routeThreadKey, false);
         if (freshArm !== undefined) disarmFreshSession(routeThreadKey, freshArm);
         clearUsageLimitsFor(routeThreadKey);
+        if (isLocalDraftThread && Object.keys(addonSubmission.payloads).length > 0) {
+          const addonFailures = await commitComposerAddonSubmissionPayloads({
+            targetKey: composerTargetKey(composerDraftTarget),
+            threadRef: scopeThreadRef(environmentId, threadIdForSend),
+            payloads: addonSubmission.payloads,
+            host: composerAddonHost,
+          });
+          if (addonFailures.length > 0) {
+            toastManager.add(
+              stackedThreadToast({
+                type: "warning",
+                title: "Chat started, but addon setup was incomplete",
+                description: `Could not finish '${addonFailures[0]?.addonId ?? "unknown"}' addon setup.`,
+                timeout: 0,
+              }),
+            );
+          }
+        }
         if (turnUsesAttachmentUploads) {
           releaseDraftAttachments(composerAttachmentsSnapshot);
         }

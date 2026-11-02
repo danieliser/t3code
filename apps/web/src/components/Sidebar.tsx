@@ -1,4 +1,24 @@
 import { attachSidebarTree } from "../lib/sidebarTree";
+import { ThreadLabelPickerDialog } from "../addons/bundled/thread-labels/ThreadLabels";
+import { presentThreadShell } from "@t3tools/client-runtime/state/models";
+import { SidebarFilterMenu } from "./sidebar/SidebarFilterMenu";
+import { buildSidebarProviderFilterState } from "./sidebar/sidebarProviderFilters";
+import { useArchivedThreadSnapshots } from "../lib/archivedThreadsState";
+import { updateClientSettings } from "../hooks/useSettings";
+import {
+  matchesSidebarThreadFilters,
+  sidebarProviderInstanceKey,
+  updateSidebarHiddenProjectKeys,
+  partitionSidebarProjectsByHiddenState,
+} from "./Sidebar.logic";
+import {
+  groupThreadsWithAddonContributions,
+  flattenSidebarAddonGroups,
+  useSidebarAddonThreadContributions,
+  type SidebarThreadAddonPresentation,
+  type SidebarThreadAddonMember,
+} from "../addons";
+import { liveShellEnvironmentIdsAtom } from "../state/shell";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";
@@ -354,6 +374,8 @@ interface SidebarThreadPartitionInput {
   readonly workingShelfEnabled: boolean;
   /** Boring mode: folders list active threads by the user's latest message. */
   readonly sortActiveBySend: boolean;
+  readonly includeArchived?: boolean;
+  readonly addonContributions?: Parameters<typeof groupThreadsWithAddonContributions>[1];
   // Snooze wakes, the queued-turn grace and the Working shelf's exit grace depend
   // on the clock, so the minute tick, the precise snooze-wake tick and the inbox
   // tracker's expiry version are inputs: a new key repartitions.
@@ -444,6 +466,61 @@ function useSidebarThreads(input: {
     inboxReturns.getSnapshot,
   );
   const nowMinute = useNowMinute();
+  const customFilters = useClientSettings((settings) => settings.sidebarThreadFilters);
+  const hiddenProjectKeys = useClientSettings((settings) => settings.sidebarHiddenProjectKeys);
+  const localVisited = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const providerFilters = buildSidebarProviderFilterState(
+    new Map(
+      [...useAtomValue(environmentPresentations.providersByEnvironmentAtom)].map(
+        ([id, providers]) => [id, { providers }],
+      ),
+    ),
+  );
+  const archived = useArchivedThreadSnapshots(
+    customFilters.includeArchived
+      ? [...serverConfigs.keys()].filter(
+          (id) =>
+            customFilters.environmentIds.length === 0 || customFilters.environmentIds.includes(id),
+        )
+      : [],
+  );
+  const currentKeys = new Set(threads.map(threadShellKey));
+  const candidateThreads = [
+    ...threads,
+    ...archived.snapshots
+      .flatMap(({ environmentId, snapshot }) =>
+        snapshot.threads
+          .filter((thread) => thread.archivedAt !== null)
+          .map((thread) => presentThreadShell(environmentId, thread)),
+      )
+      .filter((thread) => !currentKeys.has(threadShellKey(thread))),
+  ];
+  const filteredThreads = candidateThreads.filter((thread) => {
+    if (threadShellKey(thread) === routeRowThreadKey) return true;
+    const running = ["running", "starting", "preparing", "waiting", "queued"].includes(
+      thread.runtime?.status ?? "",
+    );
+    if (
+      scopedProjectKeys === null &&
+      !running &&
+      hiddenProjectKeys.includes(`${thread.environmentId}:${thread.projectId}`)
+    )
+      return false;
+    return matchesSidebarThreadFilters({
+      thread,
+      filters: customFilters,
+      nowMs: Date.parse(`${nowMinute}Z`),
+      lastVisitedAt: thread.lastVisitedAt ?? localVisited[threadShellKey(thread)],
+      providerDriverKind:
+        providerFilters.driverKindByScopedInstanceKey.get(
+          sidebarProviderInstanceKey(
+            thread.environmentId,
+            thread.runtime?.providerInstanceId ?? thread.modelSelection.instanceId,
+          ),
+        ) ?? null,
+    });
+  });
+
   // Minute-quantized clocks would delay second-precise snooze wakes by up to a minute.
   const snoozeWakeClock = useSnoozeWakeClock(threads);
   const [settledShelfExpanded, setSettledShelfExpanded] = useLocalStorage(
@@ -474,8 +551,29 @@ function useSidebarThreads(input: {
   const settledVisibleCount =
     settledTail.scopeKey === projectScopeKey ? settledTail.count : SETTLED_TAIL_INITIAL_COUNT;
 
+  const addonContributions = useSidebarAddonThreadContributions(filteredThreads);
+  const addonGroups = groupThreadsWithAddonContributions(filteredThreads, addonContributions);
+  const addonMetadata = new Map<
+    string,
+    { presentation: SidebarThreadAddonPresentation | null; depth: number }
+  >();
+  const recordAddon = (
+    groups: readonly {
+      thread: EnvironmentThreadShell;
+      presentation: SidebarThreadAddonPresentation | null;
+      children: readonly SidebarThreadAddonMember<EnvironmentThreadShell>[];
+    }[],
+    depth: number,
+  ) => {
+    for (const group of groups) {
+      addonMetadata.set(threadShellKey(group.thread), { presentation: group.presentation, depth });
+      recordAddon(group.children, depth + 1);
+    }
+  };
   const partition = partitionSidebarThreads({
-    threads,
+    threads: flattenSidebarAddonGroups(addonGroups),
+    includeArchived: customFilters.includeArchived,
+    addonContributions,
     scopedProjectKeys,
     delegatedUnderParent,
     serverConfigs,
@@ -488,6 +586,12 @@ function useSidebarThreads(input: {
 
   const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
     partition;
+  for (const list of [pinnedThreads, activeThreads])
+    recordAddon(groupThreadsWithAddonContributions(list, addonContributions), 0);
+  for (const thread of [...workingThreads, ...snoozedThreads, ...settledThreads]) {
+    const group = groupThreadsWithAddonContributions([thread], addonContributions)[0];
+    if (group) recordAddon([group], 0);
+  }
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
@@ -586,6 +690,9 @@ function useSidebarThreads(input: {
     workingShelfExpanded,
     toggleWorkingShelf: () => setWorkingShelfExpanded((value) => !value),
     projectFolders,
+    addonMetadata,
+    archiveLoading: archived.isLoading,
+    archiveError: archived.error,
     toggleProjectFolder: (group: SidebarProjectSnapshot) => {
       const keys = sidebarFolderExpansionKeys(group);
       setProjectExpanded(keys, !resolveProjectExpanded(projectExpandedById, keys));
@@ -620,7 +727,12 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     sortActiveBySend,
   } = input;
   const preciseNow = new Date().toISOString();
-  const visible = filterSidebarV2VisibleThreads(threads, scopedProjectKeys, delegatedUnderParent);
+  const visible = filterSidebarV2VisibleThreads(
+    threads,
+    scopedProjectKeys,
+    delegatedUnderParent,
+    input.includeArchived,
+  );
   const inboxObservation = inboxReturns.observe(workingShelfEnabled ? threads : null);
   const pinned: EnvironmentThreadShell[] = [];
   const active: EnvironmentThreadShell[] = [];
@@ -674,12 +786,17 @@ function partitionSidebarThreads(input: SidebarThreadPartitionInput) {
     }
   }
   // Availability gates dragging only; sorting must stay consistent across clients.
-  const sortedPinned = sortPinnedThreadsForSidebar(pinned);
-  const sortedActive = sortActiveBySend
+  const contributionOrder = (list: readonly EnvironmentThreadShell[]) =>
+    flattenSidebarAddonGroups(
+      groupThreadsWithAddonContributions(list, input.addonContributions ?? []),
+    );
+  const sortedPinned = contributionOrder(sortPinnedThreadsForSidebar(pinned));
+  const sortedActiveBase = sortActiveBySend
     ? sortWorkingThreadsBySend(active)
     : workingShelfEnabled
       ? sortInboxThreadsByReturn(active, inboxObservation.returnedAt)
       : sortThreadsForSidebar(active);
+  const sortedActive = contributionOrder(sortedActiveBase);
   return {
     pinnedThreads:
       optimisticDrop?.section !== "pinned" || optimisticDrop.order === null
@@ -907,10 +1024,25 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     projectGroupByScopeKey,
     projectScopeItems: lookupProjectScopeItems,
   } = useSidebarLookups();
+  const [labelTarget, setLabelTarget] = useState<{
+    threadKeys: readonly string[];
+    targetLabel: string;
+  } | null>(null);
   const delegatedUnderParent = useDelegatedUnderParent();
   const router = useRouter();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
+  const sidebarThreadFilters = useClientSettings((settings) => settings.sidebarThreadFilters);
+  const sidebarHiddenProjectKeys = useClientSettings(
+    (settings) => settings.sidebarHiddenProjectKeys,
+  );
+  const providerFilterState = buildSidebarProviderFilterState(
+    new Map(
+      [...useAtomValue(environmentPresentations.providersByEnvironmentAtom)].map(
+        ([id, providers]) => [id, { providers }],
+      ),
+    ),
+  );
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
   const confirmThreadArchive = useClientSettings((s) => s.confirmThreadArchive);
   const timestampFormat = useClientSettings((s) => s.timestampFormat);
@@ -929,6 +1061,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     reorderActiveThread,
     markThreadUnread,
     archiveThread,
+    unarchiveThread,
     deleteThread,
   } = useThreadActions();
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
@@ -1267,6 +1400,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   ]
                 : []),
               { id: "project-settings", label: "Project settings", icon: "settings" },
+              {
+                id: "toggle-hidden",
+                label: group.memberProjectRefs.every((ref) =>
+                  sidebarHiddenProjectKeys.includes(`${ref.environmentId}:${ref.projectId}`),
+                )
+                  ? "Show project"
+                  : "Hide project",
+              },
             ],
             position,
           ),
@@ -1283,6 +1424,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           case "unpin":
             setProjectGroupPinned(group, clicked.value === "pin");
             return;
+          case "toggle-hidden":
+            updateClientSettings({
+              sidebarHiddenProjectKeys: updateSidebarHiddenProjectKeys({
+                hiddenProjectKeys: sidebarHiddenProjectKeys,
+                projectRefs: group.memberProjectRefs,
+                hidden: !group.memberProjectRefs.every((ref) =>
+                  sidebarHiddenProjectKeys.includes(`${ref.environmentId}:${ref.projectId}`),
+                ),
+              }),
+            });
+            return;
           case "project-settings":
             openProjectSettings(group);
             return;
@@ -1293,6 +1445,9 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
 
   const {
     workingShelfEnabled,
+    addonMetadata,
+    archiveLoading,
+    archiveError,
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
@@ -1336,12 +1491,17 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     threads,
     delegatedUnderParent,
     routeRowThreadKey,
-    folderGroups: boringSidebarEnabled
-      ? scopedProjectGroups.length === 0
-        ? // An archived project keeps a folder for its active threads, below the rest.
-          [...scopeGroups, ...projectGroups.filter((project) => project.archived)]
-        : scopedProjectGroups
-      : null,
+    folderGroups:
+      boringSidebarEnabled && sidebarThreadFilters.groupByProject
+        ? scopedProjectGroups.length === 0
+          ? // An archived project keeps a folder for its active threads, below the rest.
+            partitionSidebarProjectsByHiddenState({
+              projects: [...scopeGroups, ...projectGroups.filter((project) => project.archived)],
+              threads,
+              hiddenProjectKeys: sidebarHiddenProjectKeys,
+            }).visibleProjects
+          : scopedProjectGroups
+        : null,
     keepEmptyFolders: (group) =>
       scopedProjectGroups.length > 0 || (group.pinned && !group.archived),
   });
@@ -1559,6 +1719,11 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const isMac = isMacPlatform(navigator.platform);
     const isModClick = isMac ? event.metaKey : event.ctrlKey;
     const threadKey = scopedThreadKey(threadRef);
+    if (threadByKeyRef.current.get(threadKey)?.archivedAt != null) {
+      event.preventDefault();
+      navigateToThread(threadRef);
+      return;
+    }
     if (isModClick) {
       event.preventDefault();
       toggleThreadSelection(threadKey);
@@ -1566,7 +1731,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     }
     if (event.shiftKey) {
       event.preventDefault();
-      rangeSelectTo(threadKey, orderedThreadKeysRef.current);
+      rangeSelectTo(
+        threadKey,
+        orderedThreadKeysRef.current.filter(
+          (key) => threadByKeyRef.current.get(key)?.archivedAt == null,
+        ),
+      );
       return;
     }
     if (isTrailingDoubleClick(event.detail)) {
@@ -2356,6 +2526,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                   },
                 ]
               : []),
+            { id: "add-label", label: `Labels (${count})` },
             { id: "mark-unread", label: `Mark unread (${count})` },
             {
               id: "delete",
@@ -2368,6 +2539,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         ),
       );
       if (clicked._tag === "Failure" || clicked.value === null) return;
+      if (clicked.value === "add-label") {
+        setLabelTarget({ threadKeys, targetLabel: `${count} threads` });
+        return;
+      }
       const actionTargets =
         clicked.value === "unpin"
           ? pinnedSelectedThreads
@@ -2581,13 +2756,49 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         const api = readLocalApi();
         if (!api) return;
         const threadKey = scopedThreadKey(threadRef);
+        const thread = threadByKeyRef.current.get(threadKey);
+        if (!thread) return;
+        if (thread.archivedAt !== null) {
+          const canOperate = canOperateThreads([thread]);
+          const choice = await settlePromise(() =>
+            api.contextMenu.show(
+              [
+                { id: "unarchive", label: "Unarchive", disabled: !canOperate },
+                { id: "add-label", label: "Labels" },
+                { id: "delete", label: "Delete", destructive: true, disabled: !canOperate },
+              ],
+              position,
+            ),
+          );
+          if (choice._tag === "Failure") return;
+          if (choice.value === "add-label") {
+            setLabelTarget({ threadKeys: [threadKey], targetLabel: thread.title });
+            return;
+          }
+          if (!checkThreadOperations([thread])) return;
+          if (choice.value === "unarchive") {
+            await unarchiveThread(threadRef);
+            return;
+          }
+          if (choice.value === "delete") {
+            if (confirmThreadDelete) {
+              const confirmed = await settlePromise(() =>
+                api.dialogs.confirm(
+                  `Delete thread "${thread.title}"?\nThis permanently clears conversation history for this thread.`,
+                  { variant: "destructive" },
+                ),
+              );
+              if (confirmed._tag === "Failure" || !confirmed.value) return;
+            }
+            await deleteThread(threadRef);
+          }
+          return;
+        }
         const selectionState = useThreadSelectionStore.getState();
         if (selectionState.hasSelection() && selectionState.selectedThreadKeys.has(threadKey)) {
           await handleMultiSelectContextMenu(position);
           return;
         }
-        const thread = threadByKeyRef.current.get(threadKey);
-        if (!thread) return;
         const threadWorkspacePath =
           thread.worktreePath ??
           projectByKey.get(`${thread.environmentId}:${thread.projectId}`)?.workspaceRoot ??
@@ -2615,44 +2826,51 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           ) ?? null;
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
-            buildThreadActionMenuItems({
-              canOperate: readEnvironmentScope(
-                threadRef.environmentId,
-                AuthOrchestrationOperateScope,
-              ),
-              branch: thread.branch ?? null,
-              // An archived project is not a filter choice.
-              projectFilter:
-                threadProjectGroup && !threadProjectGroup.archived
-                  ? {
-                      label: threadProjectGroup.displayName,
-                      isActive: projectScopeKeys.includes(threadProjectGroup.projectKey),
-                    }
-                  : null,
-              isPinned,
-              isSettled,
-              autoSettleEnabled: thread.autoSettleDisabledAt == null,
-              isSnoozed,
-              canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
-              isRegeneratingTitle,
-              isRunning: !threadRuntimeCanArchive(thread.runtime),
-              canShareWithGuest: appAtomRegistry.get(
-                canShareWithGuestAtom(threadRef.environmentId),
-              ),
-              canTurnIntoProject: canTurnThreadIntoProject(threadRef),
-              supports: {
-                settlement: configLoaded,
-                autoSettleOptOut: supportsAutoSettleOptOut,
-                snooze: configLoaded,
-                pinning: configLoaded,
-                titleRegeneration: configLoaded,
-              },
-              snoozePresets,
-            }),
+            [
+              { id: "add-label" as const, label: "Labels" },
+              ...buildThreadActionMenuItems({
+                canOperate: readEnvironmentScope(
+                  threadRef.environmentId,
+                  AuthOrchestrationOperateScope,
+                ),
+                branch: thread.branch ?? null,
+                // An archived project is not a filter choice.
+                projectFilter:
+                  threadProjectGroup && !threadProjectGroup.archived
+                    ? {
+                        label: threadProjectGroup.displayName,
+                        isActive: projectScopeKeys.includes(threadProjectGroup.projectKey),
+                      }
+                    : null,
+                isPinned,
+                isSettled,
+                autoSettleEnabled: thread.autoSettleDisabledAt == null,
+                isSnoozed,
+                canSnoozeNow: canSnooze(thread, { now: new Date().toISOString() }),
+                isRegeneratingTitle,
+                isRunning: !threadRuntimeCanArchive(thread.runtime),
+                canShareWithGuest: appAtomRegistry.get(
+                  canShareWithGuestAtom(threadRef.environmentId),
+                ),
+                canTurnIntoProject: canTurnThreadIntoProject(threadRef),
+                supports: {
+                  settlement: configLoaded,
+                  autoSettleOptOut: supportsAutoSettleOptOut,
+                  snooze: configLoaded,
+                  pinning: configLoaded,
+                  titleRegeneration: configLoaded,
+                },
+                snoozePresets,
+              }),
+            ],
             position,
           ),
         );
         if (clicked._tag === "Failure" || clicked.value === null) return;
+        if (clicked.value === "add-label") {
+          setLabelTarget({ threadKeys: [threadKey], targetLabel: thread.title });
+          return;
+        }
         if (threadActionRequiresOperate(clicked.value) && !checkThreadOperations([thread])) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
@@ -2978,6 +3196,14 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const newThreadInProjectShortcutLabel = shortcutLabelForCommand(keybindings, "chat.newLocal");
   return (
     <>
+      <ThreadLabelPickerDialog
+        open={labelTarget !== null}
+        threadKeys={labelTarget?.threadKeys ?? []}
+        targetLabel={labelTarget?.targetLabel ?? "Thread"}
+        onOpenChange={(open) => {
+          if (!open) setLabelTarget(null);
+        }}
+      />
       <ThreadContextDragGhost />
       <SidebarChromeHeader isElectron={isElectron} />
       <SidebarContent
@@ -2986,6 +3212,29 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
         fixedHeader={
           <SidebarGroup className="z-[1]">
             <SidebarThreadHeader
+              filterMenu={
+                <SidebarFilterMenu
+                  filters={sidebarThreadFilters}
+                  showGroupByProject={boringSidebarEnabled}
+                  environments={[...environmentLabelById].map(([environmentId, label]) => ({
+                    environmentId,
+                    label,
+                  }))}
+                  projects={projectGroups.map((project) => ({
+                    id: project.projectKey,
+                    label: project.displayName,
+                    projectKeys: project.memberProjectRefs.map(
+                      (ref) => `${ref.environmentId}:${ref.projectId}`,
+                    ),
+                  }))}
+                  providerSources={providerFilterState.sources}
+                  archiveLoading={archiveLoading}
+                  archiveError={archiveError}
+                  onFiltersChange={(filters) =>
+                    updateClientSettings({ sidebarThreadFilters: filters })
+                  }
+                />
+              }
               hasProjects={projectGroups.length > 0}
               projectScope={
                 <Combobox
@@ -3349,6 +3598,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               optimisticDrop !== null
                             }
                             thread={thread}
+                            addonPresentation={addonMetadata.get(threadKey)?.presentation ?? null}
+                            addonDepth={addonMetadata.get(threadKey)?.depth ?? 0}
                             variant={rowVariant}
                             navigationParent={
                               folderRow ??
@@ -3365,9 +3616,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   ? "unsettle"
                                   : "settle"
                             }
-                            settlementSupported={serverConfigs.has(thread.environmentId)}
-                            snoozeSupported={serverConfigs.has(thread.environmentId)}
-                            pinningSupported={serverConfigs.has(thread.environmentId)}
+                            settlementSupported={
+                              thread.archivedAt === null && serverConfigs.has(thread.environmentId)
+                            }
+                            snoozeSupported={
+                              thread.archivedAt === null && serverConfigs.has(thread.environmentId)
+                            }
+                            pinningSupported={
+                              thread.archivedAt === null && serverConfigs.has(thread.environmentId)
+                            }
                             isPinned={thread.pinnedAt != null}
                             dropVerb={
                               dragState?.activeKey === threadKey

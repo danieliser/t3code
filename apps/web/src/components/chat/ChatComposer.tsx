@@ -1,4 +1,12 @@
 import { VoiceInputSetup } from "./VoiceInputSetup";
+import {
+  ComposerAddonSlot,
+  composerAddonBlockingIssue,
+  readComposerAddonSubmissionPayloads,
+  useComposerAddonContributions,
+  type ComposerAddonSubmissionSnapshot,
+  type ComposerAddonContext,
+} from "../../addons";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
 import { DESKTOP_PASTE_AS_TEXT_EVENT } from "../../lib/desktopPasteAsText";
@@ -344,6 +352,8 @@ export interface ChatComposerHandle {
     selectedProviderModels: ReadonlyArray<ServerProvider["models"][number]>;
     interactionMode: ProviderInteractionMode;
     interactionModeEnabled: boolean;
+    addonSubmission: ComposerAddonSubmissionSnapshot;
+    addonBlockingIssue: string | null;
     shownPendingApprovalIds: ReadonlyArray<RuntimeRequestId>;
   };
   validateProviderInput: (providerInput: string) => boolean;
@@ -644,6 +654,14 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const isLiteralPendingAnswer = activePendingProgress?.activeQuestion?.initialAnswer !== undefined;
   const isEditingQueuedMessage = editingQueuedAttachments !== null;
   const composerDraft = useComposerThreadDraft(composerDraftTarget);
+  const composerAddonContext: ComposerAddonContext = {
+    targetKey: composerDraftTargetKey,
+    environmentId,
+    routeKind: routeKind === "draft" ? "draft" : "thread",
+    disabled: !canOperateThread || isSendBusy || projectSelectionRequired,
+  };
+  const composerAddonContributions = useComposerAddonContributions(composerAddonContext);
+  const composerAddonIssue = composerAddonBlockingIssue(composerAddonContributions);
   const composerDraftTargetKeyRef = useRef("");
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- publishes the committed draft target key to a ref read by async handlers
   useLayoutEffect(() => {
@@ -951,7 +969,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       ? attachmentBlockReason
       : (attachmentBlockReason ??
         runtimeModeCeilingDenial ??
-        (multipleModelSelections === null ? providerSendBlockReason : null)));
+        (multipleModelSelections === null ? providerSendBlockReason : null) ??
+        composerAddonIssue));
   const isSendDisabled = sendDisabledReason !== null;
   const selectedProviderStatus = selectedProviderEntry?.snapshot ?? null;
   const compactCommandAvailable = providerSupportsManualCompaction(selectedProviderEntry);
@@ -3126,6 +3145,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         selectedProviderModels,
         interactionMode,
         interactionModeEnabled: planModeUiEnabled,
+        addonSubmission: readComposerAddonSubmissionPayloads(
+          composerTargetKey(composerDraftTarget),
+        ),
+        addonBlockingIssue: composerAddonIssue,
       }),
       setMultipleModelSelections,
       validateProviderInput: (providerInput: string) => {
@@ -3144,6 +3167,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       addComposerAttachments,
       addComposerFoldersStable,
       foldPastedText,
+      composerAddonIssue,
       composerDraftTarget,
       composerModelOptions,
       isEditingQueuedMessage,
@@ -3297,6 +3321,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       data-chat-composer-form="true"
       {...threadContextDropTargetProps()}
     >
+      {composerAddonContributions.length > 0 ? (
+        <ComposerAddonSlot contributions={composerAddonContributions} />
+      ) : null}
       <ComposerBanner.Dock>
         <ComposerBanner.Column>
           <ComposerBannerStack items={shelfItems} />

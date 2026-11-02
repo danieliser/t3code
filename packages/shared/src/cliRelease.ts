@@ -99,7 +99,10 @@ export function crossesReleaseTrack(fromVersion: string, toVersion: string): boo
 
 /** The desktop update track a build belongs to. Preview builds have no feed and read as Stable. */
 export function desktopUpdateChannelOf(version: string): "latest" | "nightly" {
-  return cliReleaseChannelOf(version) === "nightly" ? "nightly" : "latest";
+  return cliReleaseChannelOf(version) === "nightly" ||
+    /^[^-+]+-alpha\.patched(?:-qualified)?\.\d{8}\.\d+(?:\.\d+)?$/.test(version)
+    ? "nightly"
+    : "latest";
 }
 
 /**

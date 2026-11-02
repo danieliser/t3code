@@ -3,6 +3,7 @@ import {
   type EditorId,
   type EnvironmentId,
   type EnvironmentTheme,
+  type PersistFleetSnapshot,
   type ServerConfig,
   type ServerConfigStreamEvent,
   type ServerLifecycleLegacyThreadMigrationPayload,
@@ -186,3 +187,18 @@ export const providersIgnoringCheckedAtAtom = Atom.family((environmentId: Enviro
     ),
   ).pipe(Atom.withLabel(`web-providers-ignoring-checked-at:${environmentId}`)),
 );
+export const primaryServerObservabilityAtom = Atom.make(
+  (get): ServerConfig["observability"] | null =>
+    get(primaryServerConfigAtom)?.observability ?? null,
+).pipe(Atom.withLabel("web-primary-server-observability"));
+
+export const primaryPersistFleetAtom = Atom.make((get): PersistFleetSnapshot | null => {
+  const environmentId = get(primaryEnvironmentIdAtom);
+  if (environmentId === null) return null;
+  // Sidebar bindings must survive agents going idle/offline and must resolve a
+  // newly registered identity before its first mailbox read.
+  const result = get(
+    serverEnvironment.persistFleet({ environmentId, input: { includeOffline: true } }),
+  );
+  return Option.getOrNull(AsyncResult.value(result));
+}).pipe(Atom.withLabel("web-primary-persist-fleet"));

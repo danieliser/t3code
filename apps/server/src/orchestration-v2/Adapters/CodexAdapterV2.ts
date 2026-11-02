@@ -7211,6 +7211,29 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 ),
               ),
           ),
+          injectContext: Effect.fn("CodexAdapterV2.injectContext")(
+            function* (input) {
+              const threadId = yield* getNativeThreadId(input.providerThread);
+              yield* client.request("thread/inject_items", {
+                threadId,
+                items: [
+                  {
+                    type: "message",
+                    role: "developer",
+                    content: [{ type: "input_text", text: input.text }],
+                  },
+                ],
+              });
+            },
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapter.ProviderAdapterProtocolError({
+                  driver: CODEX_PROVIDER,
+                  detail: "Failed to inject PERSIST context",
+                  cause,
+                }),
+            ),
+          ),
           injectHistory: Effect.fn("CodexAdapterV2.injectHistory")(
             function* (input) {
               const threadId = yield* getNativeThreadId(input.providerThread);

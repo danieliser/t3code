@@ -19,6 +19,8 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
   return {
     projectExpandedById: {},
     projectOrder: [],
+    threadLabels: [],
+    threadLabelIdsByThreadKey: {},
     sidebarProjectScopeKeys: [],
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
@@ -117,6 +119,8 @@ describe("parsePersistedState", () => {
     });
 
     expect(parsed).toEqual({
+      threadLabels: [],
+      threadLabelIdsByThreadKey: {},
       projectExpandedById: {
         logical: false,
       },
@@ -222,6 +226,8 @@ describe("uiStateStore persistence", () => {
       localStorageStub.getItem(PERSISTED_STATE_KEY) ?? "{}",
     ) as PersistedUiState;
     expect(persisted).toEqual({
+      threadLabels: [],
+      threadLabelIdsByThreadKey: {},
       projectExpandedById: {
         logical: false,
       },

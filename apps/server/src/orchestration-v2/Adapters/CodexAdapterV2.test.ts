@@ -1477,6 +1477,56 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
   );
 
+  it.effect("injects PERSIST developer context without starting a turn", () =>
+    Effect.gen(function* () {
+      const nativeThreadId = "persist-context-injection";
+      const preamble = codexReplayPreamble({
+        nativeThreadId,
+        nativeTurnId: "unused",
+        prompt: "unused",
+      });
+      const text = "PERSIST project and mailbox context";
+      const transcript = makeCodexReplayTranscript({
+        scenario: "persist-context-injection",
+        entries: [
+          ...preamble.slice(0, -3),
+          {
+            type: "expect_outbound",
+            label: "inject",
+            frame: {
+              id: 3,
+              method: "thread/inject_items",
+              params: {
+                threadId: nativeThreadId,
+                items: [
+                  { type: "message", role: "developer", content: [{ type: "input_text", text }] },
+                ],
+              },
+            },
+          },
+          { type: "emit_inbound", label: "injected", frame: { id: 3, result: {} } },
+        ],
+      });
+      const requests: string[] = [];
+      const harness = yield* makeCodexReplayHarness(
+        transcript,
+        () => Effect.void,
+        (method) =>
+          Effect.sync(() => {
+            requests.push(method);
+          }),
+      );
+      yield* harness.runtime.injectContext!({ providerThread: harness.providerThread, text });
+      assert.include(requests, "thread/inject_items");
+      assert.notInclude(requests, "turn/start");
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        Layer.mergeAll(IdAllocator.layer, McpProviderSessions.layer, NodeServices.layer),
+      ),
+    ),
+  );
+
   it.effect.each(["supported", "unsupported", "invalid"] as const)(
     "delivers native history with %s app-server protocol",
     (response) =>

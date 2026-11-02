@@ -2715,7 +2715,17 @@ export const resolveGitHubPublishConfig = Effect.fn("resolveGitHubPublishConfig"
 });
 
 export function resolveDesktopUpdateChannel(version: string): "latest" | "nightly" {
-  return /-nightly\.\d{8}\.\d+$/.test(version) ? "nightly" : "latest";
+  return /-(?:nightly|alpha\.patched(?:-qualified)?)\.\d{8}\.\d+(?:\.\d+)?$/.test(version)
+    ? "nightly"
+    : "latest";
+}
+
+function isPatchedAlphaDesktopVersion(version: string): boolean {
+  return /-alpha\.patched(?:-qualified)?\.\d{8}\.\d+(?:\.\d+)?$/.test(version);
+}
+
+function isOfficialNightlyDesktopVersion(version: string): boolean {
+  return /-nightly\.\d{8}\.\d+$/.test(version);
 }
 
 export function isDesktopPreviewVersion(version: string): boolean {
@@ -2723,11 +2733,13 @@ export function isDesktopPreviewVersion(version: string): boolean {
 }
 
 export function resolveDesktopWebAssetBrand(version: string): WebAssetBrand {
-  return resolveWebAssetBrandForChannel(resolveDesktopUpdateChannel(version));
+  return resolveWebAssetBrandForChannel(
+    isOfficialNightlyDesktopVersion(version) ? "nightly" : "latest",
+  );
 }
 
 export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIconAssets {
-  if (resolveDesktopUpdateChannel(version) === "nightly") {
+  if (isOfficialNightlyDesktopVersion(version)) {
     return {
       macIconPng: BRAND_ASSET_PATHS.nightlyMacIconPng,
       linuxIconPng: BRAND_ASSET_PATHS.nightlyLinuxIconPng,
@@ -2736,7 +2748,9 @@ export function resolveDesktopBuildIconAssets(version: string): DesktopBuildIcon
   }
 
   return {
-    macIconPng: BRAND_ASSET_PATHS.productionMacIconPng,
+    macIconPng: isPatchedAlphaDesktopVersion(version)
+      ? BRAND_ASSET_PATHS.alphaMacIconPng
+      : BRAND_ASSET_PATHS.productionMacIconPng,
     linuxIconPng: BRAND_ASSET_PATHS.productionLinuxIconPng,
     windowsIconIco: BRAND_ASSET_PATHS.productionWindowsIconIco,
   };
@@ -2758,7 +2772,8 @@ export function resolvePackageManagerUserAgent(packageManager: string): string {
 }
 
 export function resolveDesktopProductName(version: string): string {
-  return resolveDesktopUpdateChannel(version) === "nightly"
+  if (isPatchedAlphaDesktopVersion(version)) return "T3 Code (Alpha)";
+  return isOfficialNightlyDesktopVersion(version)
     ? "T3 Code (Nightly)"
     : (desktopPackageJson.productName ?? "T3 Code");
 }

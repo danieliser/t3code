@@ -777,6 +777,12 @@ export const make = Effect.gen(function* () {
   const worktreesDir = path.resolve(serverConfig.worktreesDir);
   const isWindows = (yield* HostProcess.Platform) === "win32";
   const foldWorktreeCase = isWindows;
+  // macOS canonical paths commonly add the `/private` prefix (for example,
+  // `/var` becomes `/private/var`). Compare against both spellings so a
+  // symlink cannot evade the managed-worktree exclusion at that boundary.
+  const canonicalWorktreesDir = yield* fileSystem
+    .realPath(worktreesDir)
+    .pipe(Effect.orElseSucceed(() => worktreesDir));
   const hostEnvironment = yield* HostProcess.Environment;
   const homeDir = yield* HostProcess.HomeDirectory;
   // `/private/tmp` is what macOS reports for sessions started in `/tmp`.
@@ -800,7 +806,8 @@ export const make = Effect.gen(function* () {
     normalizeForWorktreeMatch(candidatePath, foldWorktreeCase).startsWith(
       normalizeForWorktreeMatch(baseDir, foldWorktreeCase),
     ) ||
-    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase);
+    isT3ManagedWorktree(candidatePath, worktreesDir, foldWorktreeCase) ||
+    isT3ManagedWorktree(candidatePath, canonicalWorktreesDir, foldWorktreeCase);
 
   const listDirectory = (directory: string) =>
     fileSystem.readDirectory(directory).pipe(Effect.orElseSucceed((): ReadonlyArray<string> => []));
@@ -1388,15 +1395,18 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    return Array.from(byOwnerAndCwd.values(), (group): RawCandidate => ({
-      cwd: group.cwd,
-      source,
-      providerInstanceId: group.providerInstanceId,
-      homePath: group.homePath,
-      threadCount: group.transcripts.length,
-      lastActiveAtMs: group.lastActiveAtMs,
-      transcripts: group.transcripts,
-    }));
+    return Array.from(
+      byOwnerAndCwd.values(),
+      (group): RawCandidate => ({
+        cwd: group.cwd,
+        source,
+        providerInstanceId: group.providerInstanceId,
+        homePath: group.homePath,
+        threadCount: group.transcripts.length,
+        lastActiveAtMs: group.lastActiveAtMs,
+        transcripts: group.transcripts,
+      }),
+    );
   });
 
   const collectCandidates = Effect.fn("AgentSessionScanner.collectCandidates")(function* () {

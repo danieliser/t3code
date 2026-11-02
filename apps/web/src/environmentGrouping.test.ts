@@ -6,7 +6,9 @@ import {
   pickableProjectGroups,
 } from "@t3tools/client-runtime/state/project-grouping";
 import {
+  buildFlatSidebarProjectSnapshot,
   buildSidebarProjectPickerEntries,
+  getSidebarProjectRemovalRefs,
   buildSidebarProjectSnapshots,
   resolveSidebarProjectScopeKey,
   getSidebarProjectSettingsKey,
@@ -209,6 +211,14 @@ describe("environment grouping", () => {
     });
     expect(pickerEntry?.isPreferred).toBe(true);
     expect(pickerEntry?.targetProject.id).toBe(canonical.id);
+
+    expect(
+      getSidebarProjectRemovalRefs({
+        projectGroup: snapshots[0]!,
+        members: [snapshots[0]!.memberProjects[0]!],
+        projects: [staleWithoutRepositoryIdentity, canonical, remote],
+      }).map((projectRef) => projectRef.projectId),
+    ).toEqual([staleWithoutRepositoryIdentity.id, canonical.id]);
   });
 
   it("keeps the current environment when available and falls back otherwise", () => {
@@ -300,5 +310,43 @@ describe("environment grouping", () => {
       preferredProjectRef: { environmentId: current.environmentId, projectId: current.id },
     });
     expect(entries.map((entry) => entry.group.displayName)).toEqual(["pinned", "current", "other"]);
+  });
+
+  it("combines project groups into one flat thread-list snapshot", () => {
+    const stale = makeProject({
+      id: ProjectId.make("project-stale"),
+      repositoryIdentity,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    const canonical = makeProject({
+      id: ProjectId.make("project-canonical"),
+      repositoryIdentity,
+      updatedAt: "2026-01-02T00:00:00.000Z",
+    });
+    const second = makeProject({
+      id: ProjectId.make("project-second"),
+      title: "another-repo",
+      workspaceRoot: "/tmp/another-repo",
+      repositoryIdentity: {
+        ...repositoryIdentity,
+        canonicalKey: "github.com/example/another-repo",
+      },
+    });
+    const snapshots = buildSidebarProjectSnapshots({
+      projects: [stale, canonical, second],
+      settings: defaultGroupingSettings,
+      primaryEnvironmentId,
+      resolveEnvironmentLabel: () => "primary",
+    });
+
+    const flat = buildFlatSidebarProjectSnapshot(snapshots);
+
+    expect(flat?.displayName).toBe("Threads");
+    expect(flat?.memberProjectRefs.map((projectRef) => projectRef.projectId)).toEqual([
+      stale.id,
+      canonical.id,
+      second.id,
+    ]);
+    expect(flat?.memberProjects.map((project) => project.id)).toEqual([canonical.id, second.id]);
   });
 });

@@ -145,6 +145,13 @@ describe("DesktopSettings", () => {
         }),
       ),
   );
+  it("defaults patched Alpha builds to the nightly update channel", () => {
+    assert.equal(
+      DesktopAppSettings.resolveDefaultDesktopSettings("0.0.45-alpha.patched-qualified.20261102.69")
+        .updateChannel,
+      "nightly",
+    );
+  });
 
   it.effect("falls back to defaults when the settings file is malformed", () =>
     withSettings(

@@ -1,0 +1,191 @@
+import { beforeEach, describe, expect, it, vi } from "@effect/vitest";
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+
+import {
+  commitPersistThreadBinding,
+  prunePersistThreadBindings,
+  usePersistBindingsStore,
+} from "./bindingsStore";
+import { persistComposerAddon } from "./composer";
+
+describe("commitPersistThreadBinding", () => {
+  beforeEach(() => usePersistBindingsStore.setState({ byThreadId: {} }));
+
+  const environmentId = EnvironmentId.make("environment-1");
+  const threadRef = (threadId: string) => scopeThreadRef(environmentId, ThreadId.make(threadId));
+
+  it("stores a validated explicit binding and replaces duplicate agent routes", () => {
+    const payload = {
+      enabled: true,
+      agentId: "growth-lead",
+      displayName: "Growth lead",
+      role: "orchestrator",
+      parentAgentId: null,
+      boardSlugs: ["popup-maker-growth"],
+    };
+    commitPersistThreadBinding({ threadRef: threadRef("thread-1"), payload });
+    commitPersistThreadBinding({ threadRef: threadRef("thread-2"), payload });
+
+    expect(usePersistBindingsStore.getState().byThreadId).toEqual({
+      [scopedThreadKey(threadRef("thread-2"))]: expect.objectContaining({
+        environmentId,
+        agentId: "growth-lead",
+        role: "orchestrator",
+      }),
+    });
+  });
+
+  it("ignores malformed or unparented team bindings", () => {
+    commitPersistThreadBinding({
+      threadRef: threadRef("thread-1"),
+      payload: {
+        enabled: true,
+        agentId: "worker",
+        displayName: "Worker",
+        role: "team_member",
+        parentAgentId: null,
+        boardSlugs: [],
+      },
+    });
+    expect(usePersistBindingsStore.getState().byThreadId).toEqual({});
+  });
+
+  it("stores an explicitly parented orchestrator binding", () => {
+    commitPersistThreadBinding({
+      threadRef: threadRef("thread-orchestrator"),
+      payload: {
+        enabled: true,
+        agentId: "growth-orchestrator",
+        displayName: "Growth Orchestrator",
+        role: "orchestrator",
+        parentAgentId: "growth-commander",
+        boardSlugs: ["popup-maker-growth"],
+      },
+    });
+
+    expect(usePersistBindingsStore.getState().byThreadId).toEqual({
+      [scopedThreadKey(threadRef("thread-orchestrator"))]: expect.objectContaining({
+        role: "orchestrator",
+        parentAgentId: "growth-commander",
+      }),
+    });
+  });
+
+  it("releases bindings for explicitly settled and no-longer-active threads", () => {
+    const payload = {
+      enabled: true,
+      agentId: "growth-lead",
+      displayName: "Growth lead",
+      role: "orchestrator" as const,
+      parentAgentId: null,
+      boardSlugs: ["popup-maker-growth"],
+    };
+    commitPersistThreadBinding({ threadRef: threadRef("settled-thread"), payload });
+    commitPersistThreadBinding({
+      threadRef: threadRef("archived-thread"),
+      payload: { ...payload, agentId: "archived-agent" },
+    });
+    commitPersistThreadBinding({
+      threadRef: threadRef("active-thread"),
+      payload: { ...payload, agentId: "active-agent" },
+    });
+
+    prunePersistThreadBindings({
+      snapshotsReady: true,
+      threads: [
+        {
+          environmentId,
+          id: ThreadId.make("settled-thread"),
+          archivedAt: null,
+          settledOverride: "settled",
+        },
+        {
+          environmentId,
+          id: ThreadId.make("archived-thread"),
+          settledOverride: null,
+          archivedAt: "2026-09-29T00:00:00.000Z",
+        },
+        {
+          environmentId,
+          id: ThreadId.make("active-thread"),
+          archivedAt: null,
+          settledOverride: null,
+        },
+      ],
+    });
+
+    expect(usePersistBindingsStore.getState().byThreadId).toEqual({
+      [scopedThreadKey(threadRef("active-thread"))]: expect.objectContaining({
+        agentId: "active-agent",
+      }),
+    });
+  });
+
+  it("keeps bindings until the active shell snapshots are live", () => {
+    commitPersistThreadBinding({
+      threadRef: threadRef("missing-thread"),
+      payload: {
+        enabled: true,
+        agentId: "growth-lead",
+        displayName: "Growth lead",
+        role: "orchestrator",
+        parentAgentId: null,
+        boardSlugs: [],
+      },
+    });
+
+    prunePersistThreadBindings({ snapshotsReady: false, threads: [] });
+
+    expect(usePersistBindingsStore.getState().byThreadId).toHaveProperty(
+      scopedThreadKey(threadRef("missing-thread")),
+    );
+  });
+
+  it("registers through the server addon API before committing the local route", async () => {
+    const executeServerAction = vi.fn(async () => ({}));
+    const payload = {
+      enabled: true,
+      agentId: "growth-lead",
+      displayName: "Growth lead",
+      role: "orchestrator" as const,
+      parentAgentId: null,
+      boardSlugs: ["popup-maker-growth"],
+    };
+    await persistComposerAddon.commitSubmission?.({
+      targetKey: "draft:1",
+      threadRef: threadRef("thread-1"),
+      revision: "1",
+      payload,
+      host: { executeServerAction },
+    });
+    expect(executeServerAction).toHaveBeenCalledWith({
+      addonId: "persist",
+      actionId: "fleet.agent.upsert",
+      payload,
+    });
+    expect(usePersistBindingsStore.getState().byThreadId).toHaveProperty(
+      scopedThreadKey(threadRef("thread-1")),
+    );
+  });
+
+  it("does not create a local route when durable registration fails", async () => {
+    await expect(
+      persistComposerAddon.commitSubmission?.({
+        targetKey: "draft:1",
+        threadRef: threadRef("thread-1"),
+        revision: "1",
+        payload: {
+          enabled: true,
+          agentId: "growth-lead",
+          displayName: "Growth lead",
+          role: "orchestrator",
+          parentAgentId: null,
+          boardSlugs: [],
+        },
+        host: { executeServerAction: async () => Promise.reject(new Error("offline")) },
+      }),
+    ).rejects.toThrow("offline");
+    expect(usePersistBindingsStore.getState().byThreadId).toEqual({});
+  });
+});

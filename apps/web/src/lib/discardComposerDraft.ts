@@ -1,3 +1,5 @@
+import { clearComposerAddonSubmissionPayloads } from "../addons";
+import { composerTargetKey } from "../composerDraftStore";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 
@@ -30,6 +32,7 @@ export function discardComposerDraft(target: ComposerThreadTarget): void {
   }
 
   const releaseDiscardedDraft = () => {
+    void clearComposerAddonSubmissionPayloads(composerTargetKey(target));
     releaseDraftAttachments([...draft.images, ...draft.files]);
     // Draft-session removal already revoked these previews.
     if (!discardsSession) {

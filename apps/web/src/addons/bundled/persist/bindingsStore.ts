@@ -1,0 +1,151 @@
+import { scopedThreadKey, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import type {
+  EnvironmentId,
+  PersistFleetRole,
+  ScopedThreadRef,
+  ThreadId,
+} from "@t3tools/contracts";
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+
+import { resolveStorage } from "../../../lib/storage";
+import { persistRoleAllowsParent, type PersistNewChatConfig } from "./config";
+
+export interface PersistThreadBinding extends PersistNewChatConfig {
+  /** Undefined only for bindings written by the v1 unscoped store. */
+  readonly environmentId?: EnvironmentId;
+  readonly threadId: ThreadId;
+}
+
+interface PersistBindingThreadLifecycle {
+  readonly environmentId: EnvironmentId;
+  readonly id: ThreadId;
+  readonly archivedAt: string | null;
+  readonly settledOverride: "settled" | "active" | null;
+}
+
+interface PersistBindingsState {
+  readonly byThreadId: Readonly<Record<string, PersistThreadBinding>>;
+  readonly bind: (binding: PersistThreadBinding) => void;
+}
+
+const ROLES = new Set<PersistFleetRole>([
+  "commander",
+  "orchestrator",
+  "product",
+  "team_member",
+  "coordinator",
+]);
+
+function decodeBindingPayload(payload: unknown): PersistNewChatConfig | null {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  const value = payload as Record<string, unknown>;
+  if (
+    value.enabled !== true ||
+    typeof value.agentId !== "string" ||
+    value.agentId.trim() === "" ||
+    typeof value.displayName !== "string" ||
+    value.displayName.trim() === "" ||
+    typeof value.role !== "string" ||
+    !ROLES.has(value.role as PersistFleetRole) ||
+    !Array.isArray(value.boardSlugs) ||
+    !value.boardSlugs.every((slug) => typeof slug === "string")
+  ) {
+    return null;
+  }
+  const role = value.role as PersistFleetRole;
+  const parentAgentId =
+    persistRoleAllowsParent(role) && typeof value.parentAgentId === "string"
+      ? value.parentAgentId.trim() || null
+      : null;
+  if (role === "team_member" && parentAgentId === null) return null;
+  return {
+    enabled: true,
+    agentId: value.agentId.trim(),
+    displayName: value.displayName.trim(),
+    role,
+    parentAgentId,
+    boardSlugs: [...new Set(value.boardSlugs.map((slug) => slug.trim()).filter(Boolean))],
+  };
+}
+
+export const usePersistBindingsStore = create<PersistBindingsState>()(
+  persist(
+    (set) => ({
+      byThreadId: {},
+      bind: (binding) =>
+        set((state) => {
+          const bindingKey =
+            binding.environmentId === undefined
+              ? binding.threadId
+              : scopedThreadKey(scopeThreadRef(binding.environmentId, binding.threadId));
+          const withoutDuplicateAgent = Object.fromEntries(
+            Object.entries(state.byThreadId).filter(
+              ([threadKey, current]) =>
+                threadKey === bindingKey || current.agentId !== binding.agentId,
+            ),
+          );
+          return {
+            byThreadId: {
+              ...withoutDuplicateAgent,
+              [bindingKey]: binding,
+            },
+          };
+        }),
+    }),
+    {
+      name: "t3code:addon:persist:bindings:v1",
+      version: 1,
+      storage: createJSONStorage(() =>
+        resolveStorage(typeof window !== "undefined" ? window.localStorage : undefined),
+      ),
+      partialize: (state) => ({ byThreadId: state.byThreadId }),
+    },
+  ),
+);
+
+export function commitPersistThreadBinding(input: {
+  readonly threadRef: ScopedThreadRef;
+  readonly payload: unknown;
+}): void {
+  const config = decodeBindingPayload(input.payload);
+  if (config === null) return;
+  usePersistBindingsStore.getState().bind({
+    ...config,
+    environmentId: input.threadRef.environmentId,
+    threadId: input.threadRef.threadId,
+  });
+}
+
+export function prunePersistThreadBindings(input: {
+  readonly snapshotsReady: boolean;
+  readonly threads: readonly PersistBindingThreadLifecycle[];
+}): void {
+  if (!input.snapshotsReady) return;
+
+  const threadsByScopedKey = new Map(
+    input.threads.map((thread) => [
+      scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      thread,
+    ]),
+  );
+
+  usePersistBindingsStore.setState((state) => {
+    const retainedEntries = Object.entries(state.byThreadId).filter(([bindingKey, binding]) => {
+      if (binding.environmentId !== undefined) {
+        const thread = threadsByScopedKey.get(bindingKey);
+        return (
+          thread !== undefined && thread.archivedAt === null && thread.settledOverride !== "settled"
+        );
+      }
+      return input.threads.some(
+        (thread) =>
+          thread.id === binding.threadId &&
+          thread.archivedAt === null &&
+          thread.settledOverride !== "settled",
+      );
+    });
+    if (retainedEntries.length === Object.keys(state.byThreadId).length) return state;
+    return { byThreadId: Object.fromEntries(retainedEntries) };
+  });
+}

@@ -18,6 +18,8 @@ import {
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -1665,5 +1667,66 @@ it.effect("dispatch records the command outcome and its duration", () =>
 
     assert.strictEqual((yield* successes).count - successesBefore, 1);
     assert.strictEqual((yield* durations).count - durationsBefore, 1);
+  }).pipe(Effect.provide(layerTest)),
+);
+
+it.effect("rejects conditional messages on settled threads without storing a message or run", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const projections = yield* ProjectionStore.ProjectionStoreV2;
+    const threadId = ThreadId.make("thread:conditional-settled-message");
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("conditional-create"),
+      threadId,
+      projectId: ProjectId.make("project:conditional"),
+      title: "Conditional delivery",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* orchestrator.dispatch({
+      type: "thread.settle",
+      commandId: CommandId.make("conditional-settle"),
+      threadId,
+    });
+    const result = yield* Effect.exit(
+      orchestrator.dispatch({
+        type: "message.dispatch",
+        commandId: CommandId.make("conditional-reject"),
+        threadId,
+        messageId: MessageId.make("conditional-message-rejected"),
+        text: "Passive wake",
+        attachments: [],
+        dispatchMode: { type: "start_immediately" },
+        ifThreadUnsettled: true,
+        createdBy: "user",
+        creationSource: "web",
+      }),
+    );
+    assert.isTrue(Exit.isFailure(result));
+    if (Exit.isFailure(result))
+      assert.include(Cause.pretty(result.cause), "settled and cannot accept");
+    const before = yield* projections.getThreadProjection(threadId);
+    assert.equal(before.messages.length, 0);
+    assert.equal(before.runs.length, 0);
+    yield* orchestrator.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make("ordinary-send"),
+      threadId,
+      messageId: MessageId.make("ordinary-message"),
+      text: "Explicit user message",
+      attachments: [],
+      dispatchMode: { type: "start_immediately" },
+      createdBy: "user",
+      creationSource: "web",
+    });
+    const after = yield* projections.getThreadProjection(threadId);
+    assert.equal(after.messages.length, 1);
+    assert.equal(after.runs.length, 1);
   }).pipe(Effect.provide(layerTest)),
 );

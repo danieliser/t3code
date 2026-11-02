@@ -27,6 +27,7 @@ import {
   authScopeResponse,
   AuthAccessStreamError,
   type AuthAccessStreamEvent,
+  PersistFleetUnavailableError,
   AuthOrchestrationOperateScope,
   type AuthEnvironmentScope,
   type ScheduledTaskListResult,
@@ -112,6 +113,7 @@ import { RpcGroup, RpcSerialization, RpcServer } from "effect/rpc";
 
 import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as NativeChildWorkQuery from "./orchestration-v2/NativeChildWorkQuery.ts";
+import { executeServerAddonAction } from "./addons/registry.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
@@ -203,6 +205,15 @@ import {
 import { parseBase64DataUrl } from "./imageMime.ts";
 import { deletePendingAttachment, issueAttachmentUploadUrl } from "./assets/AttachmentUpload.ts";
 import * as PortScanner from "./preview/PortScanner.ts";
+import {
+  isPersistFleetRouteInvalidationEvent,
+  persistFleetInvalidations,
+  recoverPersistFleetStream,
+} from "./addons/persist/PersistFleetEvents.ts";
+import {
+  makePersistFleetSnapshotReader,
+  makePersistV2RouteQuery,
+} from "./addons/persist/PersistFleetProjection.ts";
 import * as WorkspaceEntries from "./workspace/WorkspaceEntries.ts";
 import * as KnownWorkspaces from "./workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
@@ -1397,6 +1408,9 @@ export const layerWsRpc = (
       const currentSessionId = currentSession.sessionId;
       const sql = yield* SqlClient.SqlClient;
       const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+      const readPersistFleetSnapshot = makePersistFleetSnapshotReader(
+        makePersistV2RouteQuery(threadManagement),
+      );
       const intakeContext = yield* Effect.context<
         | ThreadManagementService.ThreadManagementService
         | ThreadLaunchService.ThreadLaunchService
@@ -2468,6 +2482,8 @@ export const layerWsRpc = (
               }),
             ),
           ),
+        [WS_METHODS.serverGetPersistFleet]: (input) => readPersistFleetSnapshot(input),
+        [WS_METHODS.serverExecuteAddonAction]: (input) => executeServerAddonAction(input),
         [WS_METHODS.serverRefreshProviders]:
           /* Request instrumentation already owns the span; keep this helper in that context. */
           Effect.fnUntraced(function* (input) {
@@ -3473,6 +3489,28 @@ export const layerWsRpc = (
           Stream.unwrap(
             Effect.map(resourceTelemetry.subscribe, ({ latest, changes }) =>
               Stream.concat(Stream.make(latest), changes),
+            ),
+          ),
+        [WS_METHODS.subscribePersistFleet]: (input) =>
+          recoverPersistFleetStream(
+            Stream.concat(
+              Stream.fromEffect(readPersistFleetSnapshot(input)),
+              Stream.merge(
+                persistFleetInvalidations,
+                threadManagement.streamDomainEvents.pipe(
+                  Stream.mapError(
+                    () =>
+                      new PersistFleetUnavailableError({
+                        message: "PERSIST thread event stream unavailable",
+                      }),
+                  ),
+                  Stream.filter(isPersistFleetRouteInvalidationEvent),
+                  Stream.map(() => undefined),
+                ),
+              ).pipe(
+                Stream.debounce("150 millis"),
+                Stream.mapEffect(() => readPersistFleetSnapshot(input)),
+              ),
             ),
           ),
       });

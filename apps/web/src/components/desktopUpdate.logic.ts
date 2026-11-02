@@ -1,6 +1,6 @@
 import type { DesktopUpdateActionResult, DesktopUpdateState } from "@t3tools/contracts";
 
-export type DesktopUpdateButtonAction = "download" | "install" | "none";
+export type DesktopUpdateButtonAction = "download" | "install" | "open-release" | "none";
 
 const DEFAULT_DESKTOP_RELEASE_REPOSITORY = "pingdotgg/t3code";
 const GITHUB_REPOSITORY_SEGMENT = /^[A-Za-z0-9._-]+$/u;
@@ -22,6 +22,12 @@ function desktopReleaseRepositoryUrl(repository: string | undefined): string {
 }
 
 /** The download RPC can beat the updater's downloadedVersion event; fall back to the requested version. */
+const PATCHED_NIGHTLY_VERSION_PATTERN = /-alpha\.patched(?:-qualified)?\.\d{8}\.\d+(?:\.\d+)?$/;
+
+export function isPatchedNightlyDesktopVersion(version: string | null): boolean {
+  return PATCHED_NIGHTLY_VERSION_PATTERN.test(version?.trim() ?? "");
+}
+
 export function getDesktopUpdateDownloadedVersion(state: DesktopUpdateState): string | null {
   return state.downloadedVersion ?? state.availableVersion;
 }
@@ -32,7 +38,11 @@ export function getDesktopUpdateReleaseUrl(
 ): string | null {
   const normalizedVersion = version?.trim();
   if (!normalizedVersion) return null;
-  return `${desktopReleaseRepositoryUrl(repository)}/tag/v${encodeURIComponent(normalizedVersion)}`;
+  const root = desktopReleaseRepositoryUrl(
+    repository ??
+      (isPatchedNightlyDesktopVersion(normalizedVersion) ? "danieliser/t3code" : undefined),
+  );
+  return `${root}/tag/v${encodeURIComponent(normalizedVersion)}`;
 }
 
 export function getDesktopUpdateReleaseHistoryUrl(
@@ -53,11 +63,11 @@ export function resolveDesktopUpdateButtonAction(
     return "install";
   }
   if (state.status === "available") {
-    return "download";
+    return isPatchedNightlyDesktopVersion(state.currentVersion) ? "open-release" : "download";
   }
   if (state.status === "error") {
     if (state.errorContext === "download" && state.availableVersion) {
-      return "download";
+      return isPatchedNightlyDesktopVersion(state.currentVersion) ? "open-release" : "download";
     }
   }
   return "none";
@@ -95,6 +105,9 @@ export function getDesktopUpdateButtonTooltip(state: DesktopUpdateState): string
     return `Update ${state.notAppliedVersion} did not apply. Click to retry.`;
   }
   if (state.status === "available") {
+    if (isPatchedNightlyDesktopVersion(state.currentVersion)) {
+      return `Update ${state.availableVersion ?? "available"} ready on the Nightly++ releases page`;
+    }
     return `Update ${state.availableVersion ?? "available"} ready to download`;
   }
   if (state.status === "downloading") {

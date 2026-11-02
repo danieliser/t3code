@@ -148,6 +148,7 @@ export interface ThreadManagementSendInput {
   readonly mode: ThreadManagementSendMode;
   /** Start a new provider session; the orchestrator queues it instead of steering. */
   readonly freshContext?: boolean;
+  readonly ifThreadUnsettled?: true;
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
 }
@@ -852,6 +853,9 @@ const make = Effect.gen(function* () {
 
     const dispatched = yield* dispatch({
       type: "message.dispatch",
+      ...(input.ifThreadUnsettled === undefined
+        ? {}
+        : { ifThreadUnsettled: input.ifThreadUnsettled }),
       commandId: input.commandId,
       threadId: input.threadId,
       messageId: input.messageId,

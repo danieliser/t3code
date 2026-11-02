@@ -27,6 +27,8 @@ export type ThreadActionMenuId =
   | "copy-thread"
   | "copy-thread-id"
   | "archive"
+  | "unarchive"
+  | "add-label"
   | "delete";
 
 export type DraftActionMenuId =

@@ -271,3 +271,37 @@ export function backgroundActivityOverrideSettings(
     },
   };
 }
+
+export function filterArchivedThreadGroups<
+  TProject extends {
+    readonly name?: string;
+    readonly title?: string;
+    readonly cwd?: string;
+    readonly workspaceRoot?: string;
+  },
+  TThread extends { readonly title: string },
+>(
+  groups: ReadonlyArray<{
+    readonly project: TProject;
+    readonly threads: ReadonlyArray<TThread>;
+  }>,
+  query: string,
+): Array<{ readonly project: TProject; readonly threads: Array<TThread> }> {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  if (normalizedQuery.length === 0) {
+    return groups.map((group) => ({ ...group, threads: [...group.threads] }));
+  }
+
+  return groups.flatMap((group) => {
+    const projectMatches =
+      `${group.project.title ?? group.project.name ?? ""} ${group.project.workspaceRoot ?? group.project.cwd ?? ""}`
+        .toLocaleLowerCase()
+        .includes(normalizedQuery);
+    const threads = projectMatches
+      ? [...group.threads]
+      : group.threads.filter((thread) =>
+          thread.title.toLocaleLowerCase().includes(normalizedQuery),
+        );
+    return threads.length > 0 ? [{ project: group.project, threads }] : [];
+  });
+}

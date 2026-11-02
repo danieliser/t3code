@@ -19,7 +19,6 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as Ref from "effect/Ref";
-import * as Schedule from "effect/Schedule";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import { FetchHttpClient, HttpClient } from "effect/http";
@@ -72,7 +71,8 @@ export const AGENT_THREAD_ENV = "T3CODE_THREAD_ID";
 /** `0` turns off listener discovery; configured preview URLs are still probed. */
 const PORT_DISCOVERY_ENV = "T3CODE_PORT_DISCOVERY";
 
-const POLL_INTERVAL = Duration.seconds(3);
+const ACTIVE_POLL_INTERVAL = Duration.seconds(10);
+const IDLE_POLL_INTERVAL = Duration.seconds(20);
 const LSOF_TIMEOUT_MS = 5_000;
 const PROC_FD_WALK_LIMIT = 50_000;
 const SOCKET_OWNER_ATTEMPTS = 3;
@@ -210,6 +210,9 @@ const projectWebProbeSnapshot = (
   }
   return [...visibleByServer.values()].toSorted((left, right) => left.port - right.port);
 };
+
+const processIdsEqual = (left: ReadonlySet<number>, right: ReadonlySet<number>): boolean =>
+  left.size === right.size && [...left].every((processId) => right.has(processId));
 
 const parseLsofOutput = (
   raw: string,
@@ -457,6 +460,7 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   const hostPlatform = yield* HostProcess.Platform;
   const listenerDiscovery = (yield* HostProcess.Environment)[PORT_DISCOVERY_ENV] !== "0";
   const httpClient = (yield* HttpClient.HttpClient).pipe(HttpClient.withScope);
+  const notificationLock = yield* Semaphore.make(1);
   const stateRef = yield* Ref.make<ScannerState>({
     listeners: new Map(),
     terminalProcesses: new Map(),
@@ -881,20 +885,24 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
         ),
       ];
       const snapshot = yield* scanSnapshot(configuredUrls);
-      const notifications = yield* Ref.modify(stateRef, (state) => {
-        const listeners = new Map(state.listeners);
-        const changed: Array<readonly [Listener, ReadonlyArray<DiscoveredLocalServer>]> = [];
-        for (const [listener, subscription] of listeners) {
-          const next = projectWebProbeSnapshot(snapshot, subscription.configuredUrls);
-          if (serversEqual(subscription.lastSnapshot, next)) continue;
-          listeners.set(listener, { ...subscription, lastSnapshot: next });
-          changed.push([listener, next]);
-        }
-        return [changed, { ...state, listeners }];
-      });
-      yield* Effect.forEach(notifications, ([listener, servers]) => listener(servers), {
-        discard: true,
-      });
+      yield* notificationLock.withPermit(
+        Effect.gen(function* () {
+          const notifications = yield* Ref.modify(stateRef, (state) => {
+            const listeners = new Map(state.listeners);
+            const changed: Array<readonly [Listener, ReadonlyArray<DiscoveredLocalServer>]> = [];
+            for (const [listener, subscription] of listeners) {
+              const next = projectWebProbeSnapshot(snapshot, subscription.configuredUrls);
+              if (serversEqual(subscription.lastSnapshot, next)) continue;
+              listeners.set(listener, { ...subscription, lastSnapshot: next });
+              changed.push([listener, next]);
+            }
+            return [changed, { ...state, listeners }];
+          });
+          yield* Effect.forEach(notifications, ([listener, servers]) => listener(servers), {
+            discard: true,
+          });
+        }),
+      );
     },
     Effect.catchCause((cause: Cause.Cause<never>) =>
       Effect.logWarning("preview port scan failed", Cause.pretty(cause)),
@@ -904,7 +912,24 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   const pollIfRetained = Ref.get(stateRef).pipe(
     Effect.flatMap((state) => (state.retainCount > 0 ? pollTick() : Effect.void)),
   );
-  yield* Effect.forkScoped(pollIfRetained.pipe(Effect.repeat(Schedule.spaced(POLL_INTERVAL))));
+  // Keep broad listener discovery as a fallback, but avoid a system-wide lsof
+  // process every three seconds while the app is otherwise idle. Terminal PID
+  // changes trigger immediate scans below; the periodic loop is only the
+  // safety net for listeners started outside a managed terminal.
+  yield* Effect.forkScoped(
+    Effect.gen(function* () {
+      while (true) {
+        const state = yield* Ref.get(stateRef);
+        const hasActiveServer = [...state.listeners.values()].some(
+          (subscription) => subscription.lastSnapshot.length > 0,
+        );
+        yield* Effect.sleep(
+          state.retainCount > 0 && hasActiveServer ? ACTIVE_POLL_INTERVAL : IDLE_POLL_INTERVAL,
+        );
+        yield* pollIfRetained;
+      }
+    }),
+  );
 
   const acquireRetention = Effect.fn("PortDiscovery.retain")(function* () {
     const wasIdle = yield* Ref.modify(stateRef, (state) => [
@@ -912,6 +937,8 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
       { ...state, retainCount: state.retainCount + 1 },
     ]);
     if (wasIdle) {
+      // Run an immediate scan + broadcast so the new retainer doesn't have
+      // to wait up to IDLE_POLL_INTERVAL for the first emission.
       yield* pollTick();
     }
   });
@@ -934,20 +961,24 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
   const subscribe: PortDiscovery["Service"]["subscribe"] = Effect.fn("PortDiscovery.subscribe")(
     (input, listener) =>
       Effect.acquireRelease(
-        Ref.update(stateRef, (state) => {
-          const listeners = new Map(state.listeners);
-          listeners.set(listener, {
-            configuredUrls: normalizeConfiguredUrls(input.configuredUrls),
-            lastSnapshot: input.initialSnapshot,
-          });
-          return { ...state, listeners };
-        }),
-        () =>
+        notificationLock.withPermit(
           Ref.update(stateRef, (state) => {
             const listeners = new Map(state.listeners);
-            listeners.delete(listener);
+            listeners.set(listener, {
+              configuredUrls: normalizeConfiguredUrls(input.configuredUrls),
+              lastSnapshot: input.initialSnapshot,
+            });
             return { ...state, listeners };
           }),
+        ),
+        () =>
+          notificationLock.withPermit(
+            Ref.update(stateRef, (state) => {
+              const listeners = new Map(state.listeners);
+              listeners.delete(listener);
+              return { ...state, listeners };
+            }),
+          ),
       ),
   );
 
@@ -960,26 +991,33 @@ export const make = Effect.gen(function* PortDiscoveryMake() {
       const processIds = new Set(
         input.processIds.filter((processId) => Number.isInteger(processId) && processId > 0),
       );
-      yield* Ref.update(stateRef, (state) => {
+      const changed = yield* Ref.modify(stateRef, (state) => {
         const terminalProcesses = new Map(state.terminalProcesses);
         const key = terminalOwnerKey(owner);
+        const existing = terminalProcesses.get(key);
+        if (existing && processIdsEqual(existing.processIds, processIds)) {
+          return [false, state] as const;
+        }
         if (processIds.size === 0) {
+          if (!existing) return [false, state] as const;
           terminalProcesses.delete(key);
         } else {
           terminalProcesses.set(key, { owner, processIds });
         }
-        return { ...state, terminalProcesses };
+        return [true, { ...state, terminalProcesses }] as const;
       });
+      if (changed) yield* pollTick();
     });
 
   const unregisterTerminal: PortDiscovery["Service"]["unregisterTerminal"] = Effect.fn(
     "PortDiscovery.unregisterTerminal",
   )(function* (input) {
-    yield* Ref.update(stateRef, (state) => {
+    const changed = yield* Ref.modify(stateRef, (state) => {
       const terminalProcesses = new Map(state.terminalProcesses);
-      terminalProcesses.delete(terminalOwnerKey(input));
-      return { ...state, terminalProcesses };
+      const removed = terminalProcesses.delete(terminalOwnerKey(input));
+      return [removed, removed ? { ...state, terminalProcesses } : state] as const;
     });
+    if (changed) yield* pollTick();
   });
 
   const trackAgent: PortDiscovery["Service"]["trackAgent"] = () => {

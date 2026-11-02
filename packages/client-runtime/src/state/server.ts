@@ -1376,6 +1376,16 @@ export function createServerEnvironmentAtoms<R, E>(
       // server again, which reuses a Registry index fetched in the last five minutes.
       staleTimeMs: 5 * 60_000,
     }),
+    persistFleet: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
+      label: "environment-data:server:persist-fleet",
+      tag: WS_METHODS.subscribePersistFleet,
+      idleTtlMs: 0,
+    }),
+    executeAddonAction: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:server:execute-addon-action",
+      tag: WS_METHODS.serverExecuteAddonAction,
+      concurrency: { mode: "serial", key: ({ environmentId }) => environmentId },
+    }),
     configProjection,
     welcome,
     legacyThreadMigration: createEnvironmentRpcSubscriptionAtomFamily(runtime, {

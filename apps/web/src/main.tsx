@@ -9,6 +9,7 @@ import { isElectron } from "./env";
 import { startAppServices } from "./appInit";
 import { AppRoot } from "./AppRoot";
 import { clearChunkReloadGuard, reloadOnceForChunkLoadError } from "./lib/chunkReloadGuard";
+import { hydrateClientPersistence } from "./clientPersistenceBootstrap";
 
 const router = startAppServices();
 
@@ -35,10 +36,11 @@ const managedAuthShellModule =
     : null;
 
 export const startup = Promise.all([
+  hydrateClientPersistence(),
   managedAuthShellModule?.then((module) => module.default) ?? null,
   router.load(),
 ])
-  .then(([ManagedAuthShell]) => {
+  .then(([, ManagedAuthShell]) => {
     // Route chunk failures resolve router.load() and surface later through the error boundary.
     if (reloadScheduled) return;
     if (!chunkLoadFailed) clearChunkReloadGuard();

@@ -2,6 +2,17 @@ import { Debouncer } from "@tanstack/react-pacer";
 import type { PullRequestMergeMethod } from "@t3tools/contracts";
 import { create } from "zustand";
 import { normalizeProjectPathForComparison } from "@t3tools/client-runtime/state/projects";
+import {
+  createAppRendererStateStorage,
+  readRendererStateWithRetries,
+} from "./rendererStateStorage";
+import {
+  createThreadLabelId,
+  normalizeThreadLabelColor,
+  normalizeThreadLabelName,
+  sanitizeThreadLabels,
+  type ThreadLabel,
+} from "./threadLabels";
 
 export const PERSISTED_STATE_KEY = "t3code:ui-state:v1";
 const THREAD_CHANGED_FILES_EXPANSION_VERSION = 2;
@@ -17,6 +28,13 @@ const LEGACY_PERSISTED_STATE_KEYS = [
   "codething:renderer-state:v2",
   "codething:renderer-state:v1",
 ] as const;
+const uiStateStorage = createAppRendererStateStorage("ui-state");
+let uiStatePersistenceHydrated = !uiStateStorage.requiresExplicitHydration;
+let uiStateHydrationPromise: Promise<void> | null = null;
+let uiStateHydrationGeneration = 0;
+let uiStateHydrationBaseline: UiState | null = null;
+let uiStateDocumentInvalid = false;
+let applyingUiStateHydration = false;
 
 export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
@@ -31,6 +49,8 @@ export interface PersistedUiState {
   threadChangedFilesExpansionVersion?: number;
   threadChangedFilesExpandedById?: Record<string, Record<string, boolean>>;
   pullRequestMergeMethod?: string;
+  threadLabels?: ThreadLabel[];
+  threadLabelIdsByThreadKey?: Record<string, string[]>;
 }
 
 export interface UiProjectState {
@@ -44,6 +64,11 @@ export interface UiThreadState {
   threadChangedFilesExpandedById: Record<string, Record<string, boolean>>;
 }
 
+export interface UiThreadLabelState {
+  threadLabels: ThreadLabel[];
+  threadLabelIdsByThreadKey: Record<string, string[]>;
+}
+
 export interface UiEndpointState {
   defaultAdvertisedEndpointKey: string | null;
 }
@@ -53,7 +78,7 @@ export interface UiPullRequestState {
 }
 
 export interface UiState
-  extends UiProjectState, UiThreadState, UiEndpointState, UiPullRequestState {}
+  extends UiProjectState, UiThreadState, UiThreadLabelState, UiEndpointState, UiPullRequestState {}
 
 const initialState: UiState = {
   projectExpandedById: {},
@@ -61,9 +86,157 @@ const initialState: UiState = {
   sidebarProjectScopeKeys: [],
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
+  threadLabels: [],
+  threadLabelIdsByThreadKey: {},
   defaultAdvertisedEndpointKey: null,
   pullRequestMergeMethod: "merge",
 };
+
+function snapshotUiState(state: UiState): UiState {
+  return {
+    projectExpandedById: { ...state.projectExpandedById },
+    projectOrder: [...state.projectOrder],
+    sidebarProjectScopeKeys: [...state.sidebarProjectScopeKeys],
+    threadLastVisitedAtById: { ...state.threadLastVisitedAtById },
+    threadChangedFilesExpandedById: Object.fromEntries(
+      Object.entries(state.threadChangedFilesExpandedById).map(([threadId, turns]) => [
+        threadId,
+        { ...turns },
+      ]),
+    ),
+    threadLabels: state.threadLabels.map((label) => ({ ...label })),
+    threadLabelIdsByThreadKey: Object.fromEntries(
+      Object.entries(state.threadLabelIdsByThreadKey).map(([threadKey, labelIds]) => [
+        threadKey,
+        [...labelIds],
+      ]),
+    ),
+    defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
+    pullRequestMergeMethod: state.pullRequestMergeMethod,
+  };
+}
+
+function persistedValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function reconcilePersistedRecord<T>(
+  persisted: Readonly<Record<string, T>>,
+  current: Readonly<Record<string, T>>,
+  baseline: Readonly<Record<string, T>>,
+): Record<string, T> {
+  const reconciled: Record<string, T> = {};
+  const keys = new Set([
+    ...Object.keys(persisted),
+    ...Object.keys(current),
+    ...Object.keys(baseline),
+  ]);
+  for (const key of keys) {
+    const currentHasKey = Object.hasOwn(current, key);
+    const baselineHasKey = Object.hasOwn(baseline, key);
+    const changedLocally =
+      currentHasKey !== baselineHasKey ||
+      (currentHasKey && !persistedValuesEqual(current[key], baseline[key]));
+    if (changedLocally) {
+      if (currentHasKey) {
+        reconciled[key] = current[key] as T;
+      }
+      continue;
+    }
+    if (Object.hasOwn(persisted, key)) {
+      reconciled[key] = persisted[key] as T;
+    }
+  }
+  return reconciled;
+}
+
+function reconcileNestedPersistedRecord<T>(
+  persisted: Readonly<Record<string, Readonly<Record<string, T>>>>,
+  current: Readonly<Record<string, Readonly<Record<string, T>>>>,
+  baseline: Readonly<Record<string, Readonly<Record<string, T>>>>,
+): Record<string, Record<string, T>> {
+  const reconciled: Record<string, Record<string, T>> = {};
+  const keys = new Set([
+    ...Object.keys(persisted),
+    ...Object.keys(current),
+    ...Object.keys(baseline),
+  ]);
+  for (const key of keys) {
+    const currentHasKey = Object.hasOwn(current, key);
+    const baselineHasKey = Object.hasOwn(baseline, key);
+    if (currentHasKey !== baselineHasKey) {
+      if (currentHasKey) {
+        reconciled[key] = { ...(current[key] as Readonly<Record<string, T>>) };
+      }
+      continue;
+    }
+    if (!currentHasKey) {
+      if (Object.hasOwn(persisted, key)) {
+        reconciled[key] = { ...(persisted[key] as Readonly<Record<string, T>>) };
+      }
+      continue;
+    }
+
+    const reconciledNested = reconcilePersistedRecord(
+      persisted[key] ?? {},
+      current[key] as Readonly<Record<string, T>>,
+      baseline[key] as Readonly<Record<string, T>>,
+    );
+    if (Object.keys(reconciledNested).length > 0) {
+      reconciled[key] = reconciledNested;
+    }
+  }
+  return reconciled;
+}
+
+function reconcileHydratedUiState(
+  persisted: UiState,
+  current: UiState,
+  baseline: UiState,
+): UiState {
+  return {
+    projectExpandedById: reconcilePersistedRecord(
+      persisted.projectExpandedById,
+      current.projectExpandedById,
+      baseline.projectExpandedById,
+    ),
+    projectOrder: persistedValuesEqual(current.projectOrder, baseline.projectOrder)
+      ? persisted.projectOrder
+      : current.projectOrder,
+    sidebarProjectScopeKeys: persistedValuesEqual(
+      current.sidebarProjectScopeKeys,
+      baseline.sidebarProjectScopeKeys,
+    )
+      ? persisted.sidebarProjectScopeKeys
+      : current.sidebarProjectScopeKeys,
+    threadLastVisitedAtById: reconcilePersistedRecord(
+      persisted.threadLastVisitedAtById,
+      current.threadLastVisitedAtById,
+      baseline.threadLastVisitedAtById,
+    ),
+    threadChangedFilesExpandedById: reconcileNestedPersistedRecord(
+      persisted.threadChangedFilesExpandedById,
+      current.threadChangedFilesExpandedById,
+      baseline.threadChangedFilesExpandedById,
+    ),
+    threadLabels: persistedValuesEqual(current.threadLabels, baseline.threadLabels)
+      ? persisted.threadLabels
+      : current.threadLabels,
+    threadLabelIdsByThreadKey: reconcilePersistedRecord(
+      persisted.threadLabelIdsByThreadKey,
+      current.threadLabelIdsByThreadKey,
+      baseline.threadLabelIdsByThreadKey,
+    ),
+    defaultAdvertisedEndpointKey:
+      current.defaultAdvertisedEndpointKey === baseline.defaultAdvertisedEndpointKey
+        ? persisted.defaultAdvertisedEndpointKey
+        : current.defaultAdvertisedEndpointKey,
+    pullRequestMergeMethod:
+      current.pullRequestMergeMethod === baseline.pullRequestMergeMethod
+        ? persisted.pullRequestMergeMethod
+        : current.pullRequestMergeMethod,
+  };
+}
 
 const LEGACY_PROJECT_CWD_PREFERENCE_PREFIX = "legacy-project-cwd:";
 const LEGACY_PROJECT_EXPANSION_DEFAULT_KEY = "legacy-project-expansion-default";
@@ -118,6 +291,28 @@ function isPullRequestMergeMethod(value: unknown): value is PullRequestMergeMeth
   return value === "merge" || value === "squash" || value === "rebase";
 }
 
+function sanitizeThreadLabelAssignments(
+  value: unknown,
+  labels: readonly ThreadLabel[],
+): Record<string, string[]> {
+  if (!value || typeof value !== "object") return {};
+  const knownLabelIds = new Set(labels.map((label) => label.id));
+  const assignments: Record<string, string[]> = {};
+  for (const [threadKey, candidateIds] of Object.entries(value)) {
+    if (!threadKey || !Array.isArray(candidateIds)) continue;
+    const labelIds = [
+      ...new Set(
+        candidateIds.filter(
+          (candidate): candidate is string =>
+            typeof candidate === "string" && knownLabelIds.has(candidate),
+        ),
+      ),
+    ];
+    if (labelIds.length > 0) assignments[threadKey] = labelIds;
+  }
+  return assignments;
+}
+
 export function parsePersistedState(parsed: PersistedUiState): UiState {
   const projectExpandedById =
     parsed.projectExpandedById === undefined
@@ -141,6 +336,7 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
     parsed.projectOrder === undefined
       ? sanitizeStringArray(parsed.projectOrderCwds).map(legacyProjectCwdPreferenceKey)
       : sanitizeStringArray(parsed.projectOrder);
+  const threadLabels = sanitizeThreadLabels(parsed.threadLabels);
 
   return {
     projectExpandedById,
@@ -150,6 +346,11 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
       parsed.threadChangedFilesExpansionVersion === THREAD_CHANGED_FILES_EXPANSION_VERSION
         ? sanitizePersistedThreadChangedFilesExpanded(parsed.threadChangedFilesExpandedById)
         : {},
+    threadLabels,
+    threadLabelIdsByThreadKey: sanitizeThreadLabelAssignments(
+      parsed.threadLabelIdsByThreadKey,
+      threadLabels,
+    ),
     defaultAdvertisedEndpointKey: sanitizeOptionalKey(parsed.defaultAdvertisedEndpointKey),
     sidebarProjectScopeKeys: sanitizeStringArray(
       parsed.sidebarProjectScopeKeys ?? [parsed.sidebarProjectScopeKey],
@@ -160,26 +361,56 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   };
 }
 
-function readPersistedState(): UiState {
+function parsePersistedStateJson(raw: string): UiState | null {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsePersistedState(parsed as PersistedUiState);
+  } catch {
+    return null;
+  }
+}
+
+function readLegacyPersistedState(): { readonly raw: string; readonly state: UiState } | null {
   if (typeof window === "undefined") {
+    return null;
+  }
+  for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
+    let raw: string | null;
+    try {
+      raw = window.localStorage.getItem(legacyKey);
+    } catch {
+      return null;
+    }
+    if (!raw) {
+      continue;
+    }
+    const state = parsePersistedStateJson(raw);
+    if (state) {
+      return { raw, state };
+    }
+  }
+  return null;
+}
+
+function readPersistedState(): UiState {
+  if (uiStateStorage.requiresExplicitHydration) {
     return initialState;
   }
+
+  let raw: string | null | Promise<string | null>;
   try {
-    const raw = window.localStorage.getItem(PERSISTED_STATE_KEY);
-    if (!raw) {
-      for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
-        const legacyRaw = window.localStorage.getItem(legacyKey);
-        if (!legacyRaw) {
-          continue;
-        }
-        return parsePersistedState(JSON.parse(legacyRaw) as PersistedUiState);
-      }
-      return initialState;
-    }
-    return parsePersistedState(JSON.parse(raw) as PersistedUiState);
+    raw = uiStateStorage.storage.getItem(PERSISTED_STATE_KEY);
   } catch {
     return initialState;
   }
+  if (typeof raw === "string") {
+    return parsePersistedStateJson(raw) ?? initialState;
+  }
+
+  return readLegacyPersistedState()?.state ?? initialState;
 }
 
 function sanitizePersistedThreadChangedFilesExpanded(
@@ -210,44 +441,76 @@ function sanitizePersistedThreadChangedFilesExpanded(
   return nextState;
 }
 
-export function persistState(state: UiState): void {
-  if (typeof window === "undefined") {
+function serializePersistedState(state: UiState): string {
+  const projectExpandedById = Object.fromEntries(
+    Object.entries(state.projectExpandedById).filter(
+      ([key]) => key !== LEGACY_PROJECT_EXPANSION_DEFAULT_KEY,
+    ),
+  );
+  return JSON.stringify({
+    projectExpandedById,
+    projectOrder: state.projectOrder,
+    threadLastVisitedAtById: state.threadLastVisitedAtById,
+    defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
+    sidebarProjectScopeKeys: state.sidebarProjectScopeKeys,
+    sidebarProjectScopeKey:
+      state.sidebarProjectScopeKeys.length === 1
+        ? (state.sidebarProjectScopeKeys[0] ?? null)
+        : null,
+    threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
+    threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
+    pullRequestMergeMethod: state.pullRequestMergeMethod,
+    threadLabels: state.threadLabels,
+    threadLabelIdsByThreadKey: state.threadLabelIdsByThreadKey,
+  } satisfies PersistedUiState);
+}
+
+function cleanUpLegacyPersistedStateKeys(): void {
+  if (legacyKeysCleanedUp || typeof window === "undefined") {
     return;
   }
-  try {
-    const projectExpandedById = Object.fromEntries(
-      Object.entries(state.projectExpandedById).filter(
-        ([key]) => key !== LEGACY_PROJECT_EXPANSION_DEFAULT_KEY,
-      ),
-    );
-    window.localStorage.setItem(
-      PERSISTED_STATE_KEY,
-      JSON.stringify({
-        projectExpandedById,
-        projectOrder: state.projectOrder,
-        threadLastVisitedAtById: state.threadLastVisitedAtById,
-        defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
-        sidebarProjectScopeKeys: state.sidebarProjectScopeKeys,
-        // Older clients read only this field.
-        sidebarProjectScopeKey:
-          state.sidebarProjectScopeKeys.length === 1
-            ? (state.sidebarProjectScopeKeys[0] ?? null)
-            : null,
-        threadChangedFilesExpansionVersion: THREAD_CHANGED_FILES_EXPANSION_VERSION,
-        threadChangedFilesExpandedById: state.threadChangedFilesExpandedById,
-        pullRequestMergeMethod: state.pullRequestMergeMethod,
-      } satisfies PersistedUiState),
-    );
-    if (!legacyKeysCleanedUp) {
-      legacyKeysCleanedUp = true;
-      for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
-        window.localStorage.removeItem(legacyKey);
-      }
+  for (const legacyKey of LEGACY_PERSISTED_STATE_KEYS) {
+    try {
+      window.localStorage.removeItem(legacyKey);
+    } catch {
+      return;
     }
-  } catch {}
+  }
+  legacyKeysCleanedUp = true;
+}
+
+export function persistState(state: UiState): void {
+  try {
+    const result = uiStateStorage.storage.setItem(
+      PERSISTED_STATE_KEY,
+      serializePersistedState(state),
+    );
+    void Promise.resolve(result).then(cleanUpLegacyPersistedStateKeys, () => undefined);
+  } catch {
+    // Ignore quota/storage errors to avoid breaking chat UX.
+  }
 }
 
 const debouncedPersistState = new Debouncer(persistState, { wait: 500 });
+
+export async function flushUiStatePersistence(): Promise<void> {
+  debouncedPersistState.cancel();
+  if (
+    !uiStatePersistenceHydrated &&
+    !uiStateDocumentInvalid &&
+    uiStateStorage.requiresExplicitHydration
+  ) {
+    await hydrateUiStateStore();
+  }
+  if (!uiStatePersistenceHydrated || !uiStateStorage.writesEnabled()) {
+    return;
+  }
+  await uiStateStorage.writeHydratedValue(
+    PERSISTED_STATE_KEY,
+    serializePersistedState(useUiStateStore.getState()),
+  );
+  cleanUpLegacyPersistedStateKeys();
+}
 
 export function markThreadVisited(state: UiState, threadId: string, visitedAt: string): UiState {
   const visitedAtMs = Date.parse(visitedAt);
@@ -351,6 +614,119 @@ function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMetho
     : { ...state, pullRequestMergeMethod: method };
 }
 
+export function addThreadLabel(state: UiState, label: ThreadLabel): UiState {
+  const id = label.id.trim();
+  const name = normalizeThreadLabelName(label.name);
+  const color = normalizeThreadLabelColor(label.color);
+  if (!id || !name || !color) {
+    return state;
+  }
+  const normalizedName = name.toLocaleLowerCase();
+  if (
+    state.threadLabels.some(
+      (existing) => existing.id === id || existing.name.toLocaleLowerCase() === normalizedName,
+    )
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    threadLabels: [...state.threadLabels, { id, name, color }],
+  };
+}
+
+export function updateThreadLabel(
+  state: UiState,
+  labelId: string,
+  name: string,
+  color: string,
+): UiState {
+  const labelIndex = state.threadLabels.findIndex((label) => label.id === labelId);
+  const normalizedName = normalizeThreadLabelName(name);
+  const normalizedColor = normalizeThreadLabelColor(color);
+  if (labelIndex < 0 || !normalizedName || !normalizedColor) {
+    return state;
+  }
+  const duplicateName = state.threadLabels.some(
+    (label) =>
+      label.id !== labelId && label.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase(),
+  );
+  if (duplicateName) {
+    return state;
+  }
+  const currentLabel = state.threadLabels[labelIndex]!;
+  if (currentLabel.name === normalizedName && currentLabel.color === normalizedColor) {
+    return state;
+  }
+  const threadLabels = [...state.threadLabels];
+  threadLabels[labelIndex] = {
+    ...currentLabel,
+    name: normalizedName,
+    color: normalizedColor,
+  };
+  return {
+    ...state,
+    threadLabels,
+  };
+}
+
+export function deleteThreadLabel(state: UiState, labelId: string): UiState {
+  if (!state.threadLabels.some((label) => label.id === labelId)) {
+    return state;
+  }
+  const threadLabelIdsByThreadKey: Record<string, string[]> = {};
+  for (const [threadKey, labelIds] of Object.entries(state.threadLabelIdsByThreadKey)) {
+    const nextLabelIds = labelIds.filter((candidate) => candidate !== labelId);
+    if (nextLabelIds.length > 0) {
+      threadLabelIdsByThreadKey[threadKey] = nextLabelIds;
+    }
+  }
+  return {
+    ...state,
+    threadLabels: state.threadLabels.filter((label) => label.id !== labelId),
+    threadLabelIdsByThreadKey,
+  };
+}
+
+export function setThreadLabelAssigned(
+  state: UiState,
+  threadKeys: string | readonly string[],
+  labelId: string,
+  assigned: boolean,
+): UiState {
+  if (!state.threadLabels.some((label) => label.id === labelId)) {
+    return state;
+  }
+  const keys = [
+    ...new Set((typeof threadKeys === "string" ? [threadKeys] : threadKeys).filter(Boolean)),
+  ];
+  if (keys.length === 0) {
+    return state;
+  }
+
+  let changed = false;
+  const threadLabelIdsByThreadKey = { ...state.threadLabelIdsByThreadKey };
+  for (const threadKey of keys) {
+    const currentIds = threadLabelIdsByThreadKey[threadKey] ?? [];
+    const currentlyAssigned = currentIds.includes(labelId);
+    if (currentlyAssigned === assigned) {
+      continue;
+    }
+    changed = true;
+    if (assigned) {
+      threadLabelIdsByThreadKey[threadKey] = [...currentIds, labelId];
+      continue;
+    }
+    const nextIds = currentIds.filter((candidate) => candidate !== labelId);
+    if (nextIds.length === 0) {
+      delete threadLabelIdsByThreadKey[threadKey];
+    } else {
+      threadLabelIdsByThreadKey[threadKey] = nextIds;
+    }
+  }
+  return changed ? { ...state, threadLabelIdsByThreadKey } : state;
+}
+
 export function resolveProjectExpanded(
   projectExpandedById: Readonly<Record<string, boolean>>,
   preferenceKeys: readonly string[],
@@ -435,6 +811,14 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKeys: (projectKeys: readonly string[]) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
+  createThreadLabel: (name: string, color: string) => string | null;
+  updateThreadLabel: (labelId: string, name: string, color: string) => boolean;
+  deleteThreadLabel: (labelId: string) => void;
+  setThreadLabelAssigned: (
+    threadKeys: string | readonly string[],
+    labelId: string,
+    assigned: boolean,
+  ) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -443,7 +827,7 @@ interface UiStateStore extends UiState {
   ) => void;
 }
 
-export const useUiStateStore = create<UiStateStore>((set) => ({
+export const useUiStateStore = create<UiStateStore>((set, get) => ({
   ...readPersistedState(),
   markThreadVisited: (threadId, visitedAt) =>
     set((state) => markThreadVisited(state, threadId, visitedAt)),
@@ -456,6 +840,34 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSidebarProjectScopeKeys: (projectKeys) =>
     set((state) => setSidebarProjectScopeKeys(state, projectKeys)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
+  createThreadLabel: (name, color) => {
+    const normalizedName = normalizeThreadLabelName(name);
+    const normalizedColor = normalizeThreadLabelColor(color);
+    if (!normalizedName || !normalizedColor) {
+      return null;
+    }
+    const existing = get().threadLabels.find(
+      (label) => label.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase(),
+    );
+    if (existing) {
+      return existing.id;
+    }
+    const id = createThreadLabelId();
+    set((state) => addThreadLabel(state, { id, name: normalizedName, color: normalizedColor }));
+    return id;
+  },
+  updateThreadLabel: (labelId, name, color) => {
+    const currentState = get();
+    const nextState = updateThreadLabel(currentState, labelId, name, color);
+    if (nextState === currentState) {
+      return false;
+    }
+    set(nextState);
+    return true;
+  },
+  deleteThreadLabel: (labelId) => set((state) => deleteThreadLabel(state, labelId)),
+  setThreadLabelAssigned: (threadKeys, labelId, assigned) =>
+    set((state) => setThreadLabelAssigned(state, threadKeys, labelId, assigned)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
@@ -464,10 +876,122 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
     ),
 }));
 
-useUiStateStore.subscribe((state) => debouncedPersistState.maybeExecute(state));
+export function continueUiStatePersistenceHydrationInBackground(): void {
+  if (
+    uiStatePersistenceHydrated ||
+    uiStateDocumentInvalid ||
+    !uiStateStorage.requiresExplicitHydration ||
+    uiStateHydrationPromise !== null
+  ) {
+    return;
+  }
+  void hydrateUiStateStore();
+}
+
+export async function hydrateUiStateStore(): Promise<void> {
+  if (
+    uiStatePersistenceHydrated ||
+    uiStateDocumentInvalid ||
+    !uiStateStorage.requiresExplicitHydration
+  ) {
+    return;
+  }
+  if (uiStateHydrationPromise) {
+    return uiStateHydrationPromise;
+  }
+
+  const hydrationGeneration = uiStateHydrationGeneration;
+  const isCurrentHydration = () => hydrationGeneration === uiStateHydrationGeneration;
+  uiStateHydrationBaseline ??= snapshotUiState(useUiStateStore.getState());
+  const hydrationPromise = (async () => {
+    try {
+      const raw = await readRendererStateWithRetries(() =>
+        uiStateStorage.storage.getItem(PERSISTED_STATE_KEY),
+      );
+      if (!isCurrentHydration()) {
+        return;
+      }
+      let persistedState: UiState;
+      let migratedLegacyState = false;
+      if (raw !== null) {
+        const parsedState = parsePersistedStateJson(raw);
+        if (!parsedState) {
+          uiStateDocumentInvalid = true;
+          console.error(
+            "[RENDERER_STATE] Desktop UI state document is not valid JSON state; preserving it without enabling writes.",
+          );
+          return;
+        }
+        persistedState = parsedState;
+      } else {
+        const legacyState = readLegacyPersistedState();
+        persistedState = legacyState?.state ?? initialState;
+        migratedLegacyState = legacyState !== null;
+      }
+      const baseline = uiStateHydrationBaseline ?? initialState;
+      const current = snapshotUiState(useUiStateStore.getState());
+      const hadLocalChanges = !persistedValuesEqual(current, baseline);
+      const reconciledState = reconcileHydratedUiState(persistedState, current, baseline);
+      applyingUiStateHydration = true;
+      try {
+        useUiStateStore.setState(reconciledState);
+      } finally {
+        applyingUiStateHydration = false;
+      }
+      if (!isCurrentHydration()) {
+        return;
+      }
+      uiStateStorage.enableWrites();
+      uiStatePersistenceHydrated = true;
+      uiStateHydrationBaseline = null;
+      if (migratedLegacyState || hadLocalChanges) {
+        try {
+          await uiStateStorage.writeHydratedValue(
+            PERSISTED_STATE_KEY,
+            serializePersistedState(reconciledState),
+          );
+          if (migratedLegacyState) {
+            cleanUpLegacyPersistedStateKeys();
+          }
+        } catch (error) {
+          console.error("[RENDERER_STATE] Reconciled UI state persistence failed.", error);
+          debouncedPersistState.maybeExecute(reconciledState);
+        }
+      }
+    } catch (error) {
+      if (isCurrentHydration()) {
+        console.error(
+          "[RENDERER_STATE] UI state hydration failed after bounded retries; writes remain guarded until a later read succeeds.",
+          error,
+        );
+      }
+    }
+  })().finally(() => {
+    if (uiStateHydrationPromise === hydrationPromise) {
+      uiStateHydrationPromise = null;
+    }
+  });
+  uiStateHydrationPromise = hydrationPromise;
+  return hydrationPromise;
+}
+
+useUiStateStore.subscribe((state) => {
+  if (applyingUiStateHydration) {
+    return;
+  }
+  if (uiStatePersistenceHydrated) {
+    debouncedPersistState.maybeExecute(state);
+    return;
+  }
+  if (!uiStateDocumentInvalid) {
+    continueUiStatePersistenceHydrationInBackground();
+  }
+});
 
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   window.addEventListener("beforeunload", () => {
-    debouncedPersistState.flush();
+    void flushUiStatePersistence().catch((error) => {
+      console.error("[RENDERER_STATE] UI state shutdown flush failed.", error);
+    });
   });
 }

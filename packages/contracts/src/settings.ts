@@ -47,9 +47,9 @@ import {
   PreviewZoomFactor,
 } from "./preview.ts";
 import {
+  ProviderDriverKind,
   ProviderInstanceConfig,
   ProviderInstanceId,
-  ProviderDriverKind,
 } from "./providerInstance.ts";
 import { PullRequestMergeMethod } from "./pullRequest.ts";
 import {
@@ -76,6 +76,49 @@ export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "upda
 export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
+
+export const MIN_SIDEBAR_THREAD_PREVIEW_COUNT = 1;
+export const MAX_SIDEBAR_THREAD_PREVIEW_COUNT = 15;
+export const SidebarThreadPreviewCount = Schema.Int.check(
+  Schema.isBetween({
+    minimum: MIN_SIDEBAR_THREAD_PREVIEW_COUNT,
+    maximum: MAX_SIDEBAR_THREAD_PREVIEW_COUNT,
+  }),
+);
+export type SidebarThreadPreviewCount = typeof SidebarThreadPreviewCount.Type;
+const DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT: SidebarThreadPreviewCount = 6;
+
+export const SidebarThreadFilterStatus = Schema.Literals([
+  "needs_attention",
+  "unread",
+  "working",
+  "done",
+]);
+export type SidebarThreadFilterStatus = typeof SidebarThreadFilterStatus.Type;
+export const SIDEBAR_THREAD_FILTER_STATUSES: readonly SidebarThreadFilterStatus[] = [
+  "needs_attention",
+  "unread",
+  "working",
+  "done",
+];
+export const SidebarThreadFilters = Schema.Struct({
+  statuses: Schema.Array(SidebarThreadFilterStatus).pipe(
+    Schema.withDecodingDefault(Effect.succeed([...SIDEBAR_THREAD_FILTER_STATUSES])),
+  ),
+  environmentIds: Schema.Array(EnvironmentId).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  projectKeys: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
+  sources: Schema.Array(ProviderDriverKind).pipe(Schema.withDecodingDefault(Effect.succeed([]))),
+  recentOnly: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  attentionOnly: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  includeArchived: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  groupByProject: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
+});
+export type SidebarThreadFilters = typeof SidebarThreadFilters.Type;
+export const DEFAULT_SIDEBAR_THREAD_FILTERS: SidebarThreadFilters = Schema.decodeSync(
+  SidebarThreadFilters,
+)({});
 
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
@@ -523,11 +566,20 @@ export const ClientSettingsSchema = Schema.Struct({
     TrimmedNonEmptyString,
     SidebarProjectGroupingMode,
   ).pipe(Schema.withDecodingDefault(Effect.succeed({}))),
+  sidebarHiddenProjectKeys: Schema.Array(TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed([])),
+  ),
   sidebarProjectSortOrder: SidebarProjectSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_PROJECT_SORT_ORDER)),
   ),
   sidebarThreadSortOrder: SidebarThreadSortOrder.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_SORT_ORDER)),
+  ),
+  sidebarThreadFilters: SidebarThreadFilters.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_FILTERS)),
+  ),
+  sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
@@ -1892,8 +1944,11 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectGroupingOverrides: Schema.optionalKey(
     Schema.Record(TrimmedNonEmptyString, SidebarProjectGroupingMode),
   ),
+  sidebarHiddenProjectKeys: Schema.optionalKey(Schema.Array(TrimmedNonEmptyString)),
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
+  sidebarThreadFilters: Schema.optionalKey(SidebarThreadFilters),
+  sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
   voiceMicrophone: Schema.optionalKey(Schema.String),
   voiceShortcutMode: Schema.optionalKey(VoiceShortcutMode),

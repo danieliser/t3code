@@ -735,6 +735,26 @@ class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
       success: OrchestrationV2ThreadHistoryPage,
       error: EnvironmentOrchestrationThreadHistoryErrors,
     }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.post(
+      "injectPersistContext",
+      "/api/orchestration/threads/:threadId/context-injections",
+      {
+        headers: OptionalBearerHeaders,
+        params: EnvironmentOrchestrationThreadSnapshotParams,
+        payload: Schema.Struct({
+          injectionId: TrimmedNonEmptyString,
+          targetAgentId: TrimmedNonEmptyString,
+          text: TrimmedNonEmptyString,
+        }),
+        success: Schema.Struct({
+          injectionId: TrimmedNonEmptyString,
+          injected: Schema.Literal(true),
+        }),
+        error: EnvironmentOrchestrationThreadSnapshotErrors,
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
   ) {}
 
 class EnvironmentProjectsHttpApi extends HttpApiGroup.make("projects")

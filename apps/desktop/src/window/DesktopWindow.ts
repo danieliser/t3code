@@ -27,6 +27,8 @@ import {
   SNAP_SHOT_EVENT_CHANNEL,
   TRACKPAD_SCROLL_BEGIN_CHANNEL,
   TRACKPAD_SCROLL_END_CHANNEL,
+  RENDERER_STATE_FLUSH_COMPLETE_CHANNEL,
+  REQUEST_RENDERER_STATE_FLUSH_CHANNEL,
   WINDOW_FULLSCREEN_STATE_CHANNEL,
 } from "../ipc/channels.ts";
 import { PASSKEY_BRIDGE_ARGUMENT } from "../preview/GuestProtocol.ts";
@@ -38,6 +40,7 @@ import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as DesktopRendererHistory from "../telemetry/DesktopRendererHistory.ts";
 import { makeQuitShortcutHandler } from "./QuitHold.ts";
 import { copyContextMenuImage } from "./ContextMenuImage.ts";
+import { requestRendererStateFlush } from "./RendererStateFlush.ts";
 
 const TITLEBAR_HEIGHT = 40;
 
@@ -68,6 +71,7 @@ const TITLEBAR_COLOR = "#01000000"; // #00000000 does not work correctly on Linu
 const TITLEBAR_LIGHT_SYMBOL_COLOR = "#1f2937";
 const TITLEBAR_DARK_SYMBOL_COLOR = "#f8fafc";
 const MAIN_WINDOW_BOUNDS_PERSIST_DEBOUNCE_MS = 500;
+const RENDERER_STATE_FLUSH_TIMEOUT_MS = 10_000;
 const DEVELOPMENT_LOAD_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000] as const;
 const RENDERER_RECOVERY_RELOAD_DELAY_MS = 500;
 const RENDERER_RECOVERY_MAX_ATTEMPTS = 3;
@@ -86,6 +90,7 @@ type DesktopWindowRuntimeServices =
   | DesktopAppSettings.DesktopAppSettings
   | DesktopClientSettings.DesktopClientSettings
   | ElectronApp.ElectronApp
+  | DesktopState.DesktopState
   | ElectronMenu.ElectronMenu
   | ElectronShell.ElectronShell
   | ElectronTheme.ElectronTheme
@@ -113,10 +118,12 @@ export class DesktopWindow extends Context.Service<
     readonly handleBackendNotReady: Effect.Effect<void>;
     readonly flushMainWindowBounds: Effect.Effect<void>;
     readonly prepareCaptureReveal: Effect.Effect<void>;
+    readonly flushRendererState: Effect.Effect<void>;
     readonly dispatchMenuAction: (
       action: string,
       options?: { readonly reveal?: boolean },
     ) => Effect.Effect<void, DesktopWindowError>;
+    /** Push a capture lifecycle event to the renderer. */
     readonly dispatchSnapShotEvent: (
       event: DesktopSnapShotEvent,
     ) => Effect.Effect<void, DesktopWindowError>;
@@ -241,6 +248,50 @@ function concealPendingQuitWindow(
   // Linux lacks Electron window opacity; release-gated quits remain visible there.
   window.setOpacity(0);
 }
+
+let rendererStateFlushSequence = 0;
+
+const flushRendererStateForWindow = Effect.fn("DesktopWindow.flushRendererStateForWindow")(
+  function* (window: Electron.BrowserWindow) {
+    if (window.isDestroyed() || window.webContents.isDestroyed()) {
+      return;
+    }
+    const target = window.webContents;
+    const result = yield* Effect.promise((signal) =>
+      requestRendererStateFlush({
+        requestId: String(++rendererStateFlushSequence),
+        target,
+        signal,
+        send: (requestId) => {
+          target.send(REQUEST_RENDERER_STATE_FLUSH_CHANNEL, requestId);
+        },
+        subscribe: (notify) => {
+          const listener = (
+            event: Electron.IpcMainEvent,
+            requestId: unknown,
+            succeeded: unknown,
+          ) => {
+            notify({ sender: event.sender, requestId, succeeded });
+          };
+          Electron.ipcMain.on(RENDERER_STATE_FLUSH_COMPLETE_CHANNEL, listener);
+          return () => {
+            Electron.ipcMain.removeListener(RENDERER_STATE_FLUSH_COMPLETE_CHANNEL, listener);
+          };
+        },
+      }),
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: RENDERER_STATE_FLUSH_TIMEOUT_MS,
+        orElse: () => Effect.succeed("timed-out" as const),
+      }),
+    );
+    if (result !== "flushed") {
+      yield* logWindowWarning("renderer state flush did not complete before shutdown", {
+        result,
+      });
+    }
+  },
+);
 
 function getWindowTitleBarOptions(
   shouldUseDarkColors: boolean,
@@ -700,8 +751,29 @@ export const make = Effect.gen(function* () {
     window.on("move", scheduleBoundsPersist);
     window.on("maximize", scheduleBoundsPersist);
     window.on("unmaximize", scheduleBoundsPersist);
-    window.on("close", () => {
-      runFork(flushBoundsPersist);
+    let closeAllowed = false;
+    let closeFlushPending = false;
+    window.on("close", (event) => {
+      if (closeAllowed || Ref.getUnsafe(desktopState.quitting)) {
+        runFork(flushBoundsPersist);
+        return;
+      }
+      event.preventDefault();
+      if (closeFlushPending) {
+        return;
+      }
+      closeFlushPending = true;
+      void runPromise(
+        Effect.all([flushRendererStateForWindow(window), flushBoundsPersist], {
+          concurrency: "unbounded",
+          discard: true,
+        }),
+      ).finally(() => {
+        closeAllowed = true;
+        if (!window.isDestroyed()) {
+          window.close();
+        }
+      });
     });
 
     if (environment.platform === "darwin") {
@@ -922,6 +994,14 @@ export const make = Effect.gen(function* () {
     yield* ensureMain;
   }).pipe(Effect.withSpan("desktop.window.createMainIfBackendReady"));
 
+  const flushRendererState = Effect.gen(function* () {
+    const existingWindow = yield* currentMainWindow;
+    if (Option.isNone(existingWindow)) {
+      return;
+    }
+    yield* flushRendererStateForWindow(existingWindow.value);
+  }).pipe(Effect.withSpan("desktop.window.flushRendererState"));
+
   const showConnectingSplash = Effect.gen(function* () {
     if (yield* Ref.get(desktopState.quitting)) return;
     const existingSplash = yield* Ref.get(splashWindowRef);
@@ -1043,6 +1123,7 @@ export const make = Effect.gen(function* () {
     flushMainWindowBounds: Effect.suspend(() => flushMainWindowBounds).pipe(
       Effect.withSpan("desktop.window.flushMainWindowBounds"),
     ),
+    flushRendererState,
     dispatchMenuAction: Effect.fn("desktop.window.dispatchMenuAction")(function* (action, options) {
       yield* Effect.annotateCurrentSpan({ action });
       yield* dispatchRendererEvent(MENU_ACTION_CHANNEL, action, options);
