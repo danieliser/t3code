@@ -203,6 +203,25 @@ const resolveResourceMonitorPath = Effect.fn(
   return Option.none<string>();
 });
 
+const resolveWorktreeFastPath = Effect.fn("desktop.backendConfiguration.resolveWorktreeFastPath")(
+  function* () {
+    const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    const fileSystem = yield* FileSystem.FileSystem;
+    // Only macOS builds bundle it.
+    if (environment.platform !== "darwin") return Option.none<string>();
+    const relativePath = environment.path.join("worktree-fast", "git-worktree-fast");
+    const candidates = environment.isPackaged
+      ? [environment.path.join(environment.resourcesPath, relativePath)]
+      : environment.resolveResourcePathCandidates(relativePath);
+    for (const candidate of candidates) {
+      if (yield* fileSystem.exists(candidate).pipe(Effect.orElseSucceed(() => false))) {
+        return Option.some(candidate);
+      }
+    }
+    return Option.none<string>();
+  },
+);
+
 const readPersistedBackendObservabilitySettings = Effect.gen(function* () {
   const fileSystem = yield* FileSystem.FileSystem;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
@@ -488,6 +507,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
   function* (
     input: SharedBootstrapInput & {
       readonly resourceMonitorPath: Option.Option<string>;
+      readonly worktreeFastPath: Option.Option<string>;
       readonly cliPath: Option.Option<string>;
       readonly shellEnvironmentPrepared: boolean;
     },
@@ -518,6 +538,10 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
       ...Option.match(input.resourceMonitorPath, {
         onNone: () => ({}),
         onSome: (resourceMonitorPath) => ({ resourceMonitorPath }),
+      }),
+      ...Option.match(input.worktreeFastPath, {
+        onNone: () => ({}),
+        onSome: (worktreeFastPath) => ({ worktreeFastPath }),
       }),
       ...buildObservabilityFragment(input.observabilitySettings),
     };
@@ -790,6 +814,10 @@ export const make = Effect.gen(function* () {
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
     );
+    const worktreeFastPath = yield* resolveWorktreeFastPath().pipe(
+      Effect.provideService(FileSystem.FileSystem, fileSystem),
+      Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
+    );
     const cliPath = yield* DesktopCliShim.install.pipe(
       Effect.provideService(FileSystem.FileSystem, fileSystem),
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
@@ -798,6 +826,7 @@ export const make = Effect.gen(function* () {
     return yield* resolvePrimaryStartConfig({
       ...shared,
       resourceMonitorPath,
+      worktreeFastPath,
       cliPath,
       shellEnvironmentPrepared,
     }).pipe(
