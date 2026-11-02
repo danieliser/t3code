@@ -491,6 +491,9 @@ export function useSettingsRestore(onRestored?: () => void) {
     ...(settings.sidebarProjectSortOrder !== DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder
       ? ["Project order"]
       : []),
+    ...(settings.sidebarShowPorts !== DEFAULT_UNIFIED_SETTINGS.sidebarShowPorts
+      ? ["Show thread ports"]
+      : []),
     ...(settings.sidebarWorkingShelfEnabled !== DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled
       ? ["Working section"]
       : []),
@@ -662,6 +665,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       panelAnimationDurationMs: DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs,
       sidebarProjectGroupingMode: DEFAULT_UNIFIED_SETTINGS.sidebarProjectGroupingMode,
       sidebarProjectSortOrder: DEFAULT_UNIFIED_SETTINGS.sidebarProjectSortOrder,
+      sidebarShowPorts: DEFAULT_UNIFIED_SETTINGS.sidebarShowPorts,
       sidebarWorkingShelfEnabled: DEFAULT_UNIFIED_SETTINGS.sidebarWorkingShelfEnabled,
       sidebarAutoSettleAfterDays: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleAfterDays,
       sidebarAutoSettleKeepPullRequests: DEFAULT_UNIFIED_SETTINGS.sidebarAutoSettleKeepPullRequests,
@@ -891,6 +895,27 @@ export function GeneralSettingsPanel() {
                 ))}
               </SelectPopup>
             </Select>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("thread-ports")}
+          description="Show running port numbers beside threads in the sidebar."
+          resetAction={
+            settings.sidebarShowPorts !== DEFAULT_UNIFIED_SETTINGS.sidebarShowPorts ? (
+              <SettingResetButton
+                label="thread ports"
+                onClick={() =>
+                  updateSettings({ sidebarShowPorts: DEFAULT_UNIFIED_SETTINGS.sidebarShowPorts })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.sidebarShowPorts}
+              onCheckedChange={(checked) => updateSettings({ sidebarShowPorts: Boolean(checked) })}
+              aria-label="Show thread ports"
+            />
           }
         />
         <SettingsRow
