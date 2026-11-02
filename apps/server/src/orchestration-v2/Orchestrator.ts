@@ -78,6 +78,7 @@ import {
 } from "@t3tools/contracts";
 import { modelSelectionsEqual } from "@t3tools/shared/model";
 import { modelSwitchSince } from "./modelSwitch.ts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { recordThreadOpen } from "@t3tools/shared/paletteSearch";
 import {
   backgroundWorkHoldsCompletion,
@@ -4678,7 +4679,15 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         transferId,
         targetThreadId: command.targetThreadId,
         ...(command.title === undefined ? {} : { title: command.title }),
-        ...(command.sideChat ? { sideChat: true } : {}),
+        ...(command.sideChat
+          ? {
+              sideChat: true,
+              sideChatRuntimeMode: resolveProjectSettings(
+                yield* serverSettings.getSettings.pipe(mapDispatchError(command)),
+                sourceProjection.thread.projectId,
+              ).settings.sideChatRuntimeMode,
+            }
+          : {}),
         createdBy: command.createdBy,
         creationSource: command.creationSource,
         createdAt: now,
