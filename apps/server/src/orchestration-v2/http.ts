@@ -22,6 +22,7 @@ import * as SqlClient from "effect/sql/SqlClient";
 import {
   annotateEnvironmentRequest,
   failEnvironmentInternal,
+  failEnvironmentConflict,
   failEnvironmentInvalidRequest,
   failEnvironmentNotFound,
   requireEnvironmentScope,
@@ -184,10 +185,7 @@ export const layer = HttpApiBuilder.group(
           yield* annotateEnvironmentRequest(args.endpoint.name);
           yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
           if (Option.isNone(contextInjectionSessions))
-            return yield* failEnvironmentInternal(
-              "internal_error",
-              new Error("Provider context injection is unavailable"),
-            );
+            return yield* failEnvironmentConflict("provider_unsupported");
           return yield* injectPersistContext({
             threadId: args.params.threadId,
             ...args.payload,
@@ -201,8 +199,8 @@ export const layer = HttpApiBuilder.group(
             ),
             Effect.catchTags({
               PersistContextInjectionError: Effect.fnUntraced(function* (cause) {
-                if (cause.reason === "payload_conflict")
-                  return yield* failEnvironmentInvalidRequest("invalid_command");
+                if (cause.reason === "payload_conflict" || cause.reason === "target_unavailable")
+                  return yield* failEnvironmentConflict(cause.reason);
                 return yield* failEnvironmentInternal("internal_error", cause);
               }),
             }),

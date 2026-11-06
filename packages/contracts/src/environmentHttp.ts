@@ -218,6 +218,24 @@ export class EnvironmentOperationForbiddenError extends Schema.TaggedError<Envir
   }
 }
 
+export class EnvironmentConflictError extends Schema.TaggedError<EnvironmentConflictError>()(
+  "EnvironmentConflictError",
+  {
+    code: Schema.Literal("persist_context_injection_refused"),
+    reason: Schema.Literals(["target_unavailable", "provider_unsupported", "payload_conflict"]),
+    traceId: TrimmedNonEmptyString,
+  },
+  { httpApiStatus: 409 },
+) {
+  [HttpServerRespondable.symbol]() {
+    return HttpServerResponse.schemaJson(EnvironmentConflictError)(this, { status: 409 });
+  }
+
+  override get message(): string {
+    return `The environment refused context injection (${this.reason}).`;
+  }
+}
+
 export class EnvironmentInternalError extends Schema.TaggedError<EnvironmentInternalError>()(
   "EnvironmentInternalError",
   {
@@ -760,7 +778,11 @@ class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
           text: TrimmedNonEmptyString.check(Schema.isMaxLength(64_000)),
         }),
         success: PersistContextReceipt,
-        error: [EnvironmentRequestInvalidError, ...EnvironmentOrchestrationThreadSnapshotErrors],
+        error: [
+          EnvironmentRequestInvalidError,
+          EnvironmentConflictError,
+          ...EnvironmentOrchestrationThreadSnapshotErrors,
+        ],
       },
     ).middleware(EnvironmentAuthenticatedAuth),
   )

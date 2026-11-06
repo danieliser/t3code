@@ -351,6 +351,21 @@ it.effect("dispatches V2 HTTP commands with protocol and scope guards and replay
       startsTurn: false,
       modelConsumption: "unproven",
     });
+    operate = true;
+    const refusedInjection = yield* Effect.promise(() =>
+      handler(
+        new Request(`http://localhost/api/orchestration/threads/${thread.id}/context-injections`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ injectionId: "refused", targetAgentId: "agent", text: "context" }),
+        }),
+      ),
+    );
+    expect(refusedInjection.status).toBe(409);
+    expect(yield* Effect.promise(() => refusedInjection.json())).toMatchObject({
+      code: "persist_context_injection_refused",
+      reason: "target_unavailable",
+    });
     const missingReceipt = yield* Effect.promise(() =>
       handler(
         new Request(
@@ -362,6 +377,7 @@ it.effect("dispatches V2 HTTP commands with protocol and scope guards and replay
     expect(missingReceipt.status).toBe(404);
     expect((yield* read({ "content-type": "application/json" })).status).toBe(400);
     expect((yield* read(headers, ThreadId.make("missing"))).status).toBe(404);
+    operate = false;
     expect((yield* dispatch(command)).status).toBe(403);
     operate = true;
     expect((yield* dispatch(command, { "content-type": "application/json" })).status).toBe(400);

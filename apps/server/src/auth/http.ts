@@ -8,6 +8,7 @@ import {
   EnvironmentHttpApi,
   EnvironmentHttpForbiddenError,
   EnvironmentInternalError,
+  EnvironmentConflictError,
   type EnvironmentInternalErrorReason,
   EnvironmentOperationForbiddenError,
   EnvironmentRequestInvalidError,
@@ -116,6 +117,22 @@ export function failEnvironmentInvalidRequest(reason: EnvironmentRequestInvalidR
   return currentEnvironmentTraceId.pipe(
     Effect.flatMap((traceId) =>
       Effect.fail(new EnvironmentRequestInvalidError({ code: "invalid_request", reason, traceId })),
+    ),
+  );
+}
+
+export function failEnvironmentConflict(
+  reason: "target_unavailable" | "provider_unsupported" | "payload_conflict",
+) {
+  return currentEnvironmentTraceId.pipe(
+    Effect.flatMap((traceId) =>
+      Effect.fail(
+        new EnvironmentConflictError({
+          code: "persist_context_injection_refused",
+          reason,
+          traceId,
+        }),
+      ),
     ),
   );
 }
