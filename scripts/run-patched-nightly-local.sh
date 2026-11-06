@@ -112,6 +112,21 @@ if [[ -e "$release_dir/T3-Code-$build_version-arm64.dmg" ]]; then
 fi
 
 log "building version=$build_version upstream=$upstream_sha replay_commits=$replay_count"
+required_pnpm_version="$(node -p 'JSON.parse(require("fs").readFileSync("package.json", "utf8")).packageManager.split("@").at(-1)')"
+toolchain_dir="$release_dir/toolchain"
+if [[ -x "$toolchain_dir/node_modules/.bin/pnpm" ]]; then
+  export PATH="$toolchain_dir/node_modules/.bin:$PATH"
+fi
+if [[ "$(pnpm --version 2>/dev/null || true)" != "$required_pnpm_version" ]]; then
+  log "package_manager_bootstrap_started version=$required_pnpm_version"
+  npm install --prefix "$toolchain_dir" --no-audit --no-fund "pnpm@$required_pnpm_version"
+  export PATH="$toolchain_dir/node_modules/.bin:$PATH"
+fi
+[[ "$(pnpm --version)" == "$required_pnpm_version" ]] || {
+  log "failed reason=package_manager_version_mismatch"
+  exit 2
+}
+
 lockfile_sha="$(shasum -a 256 pnpm-lock.yaml | awk '{ print $1 }')"
 installed_lockfile="$state_dir/installed-pnpm-lock-sha256"
 if [[ -f "$installed_lockfile" && "$(cat "$installed_lockfile")" == "$lockfile_sha" && -f node_modules/.pnpm/lock.yaml ]]; then

@@ -7,7 +7,9 @@ successful build. It rebases the committed custom stack with
 with `hdiutil`. A dirty tree, rebase conflict, or build failure stops the run
 without advancing the last-success marker. An atomic directory lock prevents
 overlap. Artifacts and checksums stay under `release/qualified-nightly/`; the
-routine never publishes or uploads them.
+routine never publishes or uploads them. If the shared pnpm launcher is missing,
+broken or on another version, the routine bootstraps the package.json-pinned
+version under `release/qualified-nightly/toolchain/` without changing global tools.
 
 Install or refresh the user LaunchAgent after copying the plist to
 `~/Library/LaunchAgents/com.danieliser.t3code.patched-nightly-qualified.plist`:
