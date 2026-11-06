@@ -648,19 +648,19 @@ const WsServerGetConfigRpc = Rpc.make(WS_METHODS.serverGetConfig, {
   error: Schema.Union([KeybindingsConfigError, ServerSettingsError, EnvironmentAuthorizationError]),
 });
 
-export const WsServerGetPersistFleetRpc = Rpc.make(WS_METHODS.serverGetPersistFleet, {
+const WsServerGetPersistFleetRpc = Rpc.make(WS_METHODS.serverGetPersistFleet, {
   payload: Schema.Struct({ includeOffline: Schema.optional(Schema.Boolean) }),
   success: PersistFleetSnapshot,
   error: Schema.Union([PersistFleetUnavailableError, EnvironmentAuthorizationError]),
 });
 
-export const WsServerExecuteAddonActionRpc = Rpc.make(WS_METHODS.serverExecuteAddonAction, {
+const WsServerExecuteAddonActionRpc = Rpc.make(WS_METHODS.serverExecuteAddonAction, {
   payload: ServerAddonActionInput,
   success: ServerAddonActionResult,
   error: Schema.Union([ServerAddonActionError, EnvironmentAuthorizationError]),
 });
 
-export const WsSubscribePersistFleetRpc = Rpc.make(WS_METHODS.subscribePersistFleet, {
+const WsSubscribePersistFleetRpc = Rpc.make(WS_METHODS.subscribePersistFleet, {
   payload: Schema.Struct({ includeOffline: Schema.optional(Schema.Boolean) }),
   success: PersistFleetSnapshot,
   error: Schema.Union([PersistFleetUnavailableError, EnvironmentAuthorizationError]),

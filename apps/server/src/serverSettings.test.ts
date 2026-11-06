@@ -2489,7 +2489,10 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
             sideChatRuntimeMode: "full-access",
             projectSettingsOverrides: {
               [raised]: { defaultRuntimeMode: "full-access", sideChatRuntimeMode: "auto" },
-              [supervised]: { defaultRuntimeMode: "approval-required", sideChatRuntimeMode: "approval-required" },
+              [supervised]: {
+                defaultRuntimeMode: "approval-required",
+                sideChatRuntimeMode: "approval-required",
+              },
             },
           }),
         );
@@ -2497,8 +2500,14 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))(
         const settings = yield* service.getSettings;
         assert.equal(settings.defaultRuntimeMode, "auto-accept-edits");
         assert.equal(settings.sideChatRuntimeMode, "auto-accept-edits");
-        assert.equal(settings.projectSettingsOverrides[raised]?.sideChatRuntimeMode, "auto-accept-edits");
-        assert.equal(settings.projectSettingsOverrides[supervised]?.sideChatRuntimeMode, "approval-required");
+        assert.equal(
+          settings.projectSettingsOverrides[raised]?.sideChatRuntimeMode,
+          "auto-accept-edits",
+        );
+        assert.equal(
+          settings.projectSettingsOverrides[supervised]?.sideChatRuntimeMode,
+          "approval-required",
+        );
         assert.equal(
           settings.projectSettingsOverrides[raised]?.defaultRuntimeMode,
           "auto-accept-edits",

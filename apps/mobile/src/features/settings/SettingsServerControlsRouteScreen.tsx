@@ -338,40 +338,40 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     />
                   ))}
                 </SettingsSection>
-                  {(
-                    [
-                      ["defaultRuntimeMode", "Permissions · New threads"],
-                      ["sideChatRuntimeMode", "Permissions · Side chats"],
-                    ] as const
-                  ).map(([key, title]) => (
-                    <SettingsSection
-                      key={key}
-                      title={title}
-                      footer={
-                        managed(key) ??
-                        (key === "sideChatRuntimeMode"
-                          ? "Permissions for new /side chats. Side chats share the parent’s worktree."
-                          : undefined)
-                      }
-                      trailing={
-                        pendingWrites === 0 && uniform(key) === null ? (
-                          <MixedValuesLabel projectSelected={projectSelected} />
-                        ) : null
-                      }
-                    >
-                      {runtimeModeChoices.map((choice, index) => (
-                        <SettingsChoiceRow
-                          key={choice.mode}
-                          label={choice.label}
-                          description={choice.disabledReason ?? choice.description}
-                          selected={uniform(key) === choice.mode}
-                          separated={index > 0}
-                          disabled={disabledFor(key) || choice.disabledReason !== undefined}
-                          onPress={() => write({ [key]: choice.mode })}
-                        />
-                      ))}
-                    </SettingsSection>
-                  ))}
+                {(
+                  [
+                    ["defaultRuntimeMode", "Permissions · New threads"],
+                    ["sideChatRuntimeMode", "Permissions · Side chats"],
+                  ] as const
+                ).map(([key, title]) => (
+                  <SettingsSection
+                    key={key}
+                    title={title}
+                    footer={
+                      managed(key) ??
+                      (key === "sideChatRuntimeMode"
+                        ? "Permissions for new /side chats. Side chats share the parent’s worktree."
+                        : undefined)
+                    }
+                    trailing={
+                      pendingWrites === 0 && uniform(key) === null ? (
+                        <MixedValuesLabel projectSelected={projectSelected} />
+                      ) : null
+                    }
+                  >
+                    {runtimeModeChoices.map((choice, index) => (
+                      <SettingsChoiceRow
+                        key={choice.mode}
+                        label={choice.label}
+                        description={choice.disabledReason ?? choice.description}
+                        selected={uniform(key) === choice.mode}
+                        separated={index > 0}
+                        disabled={disabledFor(key) || choice.disabledReason !== undefined}
+                        onPress={() => write({ [key]: choice.mode })}
+                      />
+                    ))}
+                  </SettingsSection>
+                ))}
                 <SettingsSection
                   title="Response streaming"
                   footer={managed("responseStreamingMode")}

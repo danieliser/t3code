@@ -1338,6 +1338,7 @@ it.effect("on-demand clients get provider config without workspace snapshots", (
     Effect.provide(
       Layer.mergeAll(
         Layer.fresh(layerConfigSources),
+        FetchHttpClient.layer,
         Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
         Layer.mock(ServerBrowser.ServerBrowser)({}),
       ),
@@ -1426,6 +1427,7 @@ it.effect("a publish whose push fails still refreshes the new remote", () =>
     Effect.provide(
       Layer.mergeAll(
         Layer.fresh(layerConfigSources),
+        FetchHttpClient.layer,
         Layer.mock(PreviewAutomationBroker.PreviewAutomationBroker)({}),
         Layer.mock(ServerBrowser.ServerBrowser)({}),
       ),

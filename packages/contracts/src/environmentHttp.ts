@@ -59,12 +59,15 @@ import {
   EnvironmentSpeechTranscriptionResult,
 } from "./speech.ts";
 import {
+  OrchestrationV2ClientCommand,
+  OrchestrationV2DispatchCommandResult,
   OrchestrationV2ShellSnapshot,
   OrchestrationV2ThreadBoundedSnapshot,
   OrchestrationV2ThreadDetailSnapshot,
   OrchestrationV2ThreadHistoryPage,
   OrchestrationV2ThreadTranscript,
 } from "./orchestrationV2.ts";
+import { PersistContextCapabilities, PersistContextReceipt } from "./persistContext.ts";
 import { Project, ProjectMutation, ProjectSnapshot } from "./project.ts";
 import {
   PullRequestDiffInput,
@@ -703,6 +706,14 @@ class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
     }).middleware(EnvironmentAuthenticatedAuth),
   )
   .add(
+    HttpApiEndpoint.post("dispatch", "/api/orchestration/dispatch", {
+      headers: OrchestrationProtocolHeaders,
+      payload: OrchestrationV2ClientCommand,
+      success: OrchestrationV2DispatchCommandResult,
+      error: [EnvironmentRequestInvalidError, ...EnvironmentOrchestrationSnapshotErrors],
+    }).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
     HttpApiEndpoint.get("threadSnapshot", "/api/orchestration/threads/:threadId", {
       headers: OrchestrationProtocolHeaders,
       params: EnvironmentOrchestrationThreadSnapshotParams,
@@ -741,17 +752,38 @@ class EnvironmentOrchestrationHttpApi extends HttpApiGroup.make("orchestration")
       "injectPersistContext",
       "/api/orchestration/threads/:threadId/context-injections",
       {
-        headers: OptionalBearerHeaders,
+        headers: OrchestrationProtocolHeaders,
         params: EnvironmentOrchestrationThreadSnapshotParams,
         payload: Schema.Struct({
-          injectionId: TrimmedNonEmptyString,
-          targetAgentId: TrimmedNonEmptyString,
-          text: TrimmedNonEmptyString,
+          injectionId: TrimmedNonEmptyString.check(Schema.isMaxLength(200)),
+          targetAgentId: TrimmedNonEmptyString.check(Schema.isMaxLength(256)),
+          text: TrimmedNonEmptyString.check(Schema.isMaxLength(64_000)),
         }),
-        success: Schema.Struct({
-          injectionId: TrimmedNonEmptyString,
-          injected: Schema.Literal(true),
-        }),
+        success: PersistContextReceipt,
+        error: [EnvironmentRequestInvalidError, ...EnvironmentOrchestrationThreadSnapshotErrors],
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "persistContextCapabilities",
+      "/api/orchestration/threads/:threadId/context-injections",
+      {
+        headers: OrchestrationProtocolHeaders,
+        params: EnvironmentOrchestrationThreadSnapshotParams,
+        success: PersistContextCapabilities,
+        error: EnvironmentOrchestrationThreadSnapshotErrors,
+      },
+    ).middleware(EnvironmentAuthenticatedAuth),
+  )
+  .add(
+    HttpApiEndpoint.get(
+      "persistContextReceipt",
+      "/api/orchestration/threads/:threadId/context-injections/:injectionId",
+      {
+        headers: OrchestrationProtocolHeaders,
+        params: Schema.Struct({ threadId: ThreadId, injectionId: TrimmedNonEmptyString }),
+        success: PersistContextReceipt,
         error: EnvironmentOrchestrationThreadSnapshotErrors,
       },
     ).middleware(EnvironmentAuthenticatedAuth),

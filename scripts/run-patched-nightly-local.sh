@@ -128,6 +128,7 @@ fi
 log "qualification_started"
 node_modules/.bin/vp test run \
   apps/server/src/orchestration-v2/Orchestrator.control-reads.test.ts \
+  apps/server/src/orchestration-v2/http.test.ts \
   apps/server/src/addons/persist/PersistContextInjection.test.ts \
   apps/server/src/addons/persist/PersistFleetProjection.test.ts \
   apps/server/src/addons/persist/PersistThreadRoutes.test.ts \
@@ -139,7 +140,7 @@ node_modules/.bin/vp test run \
   apps/desktop/src/settings/DesktopRendererState.test.ts \
   apps/desktop/src/window/RendererStateFlush.test.ts
 for package in web server desktop; do
-  node_modules/.bin/tsc --noEmit -p "apps/$package/tsconfig.json"
+  (cd "apps/$package" && ../../node_modules/.bin/vp run typecheck)
 done
 log "qualification_finished"
 

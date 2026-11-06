@@ -18,7 +18,6 @@ import {
   type SidebarThreadAddonPresentation,
   type SidebarThreadAddonMember,
 } from "../addons";
-import { liveShellEnvironmentIdsAtom } from "../state/shell";
 import { type EnvironmentId, type ScopedProjectRef } from "@t3tools/contracts";
 import type { EnvironmentServerConfig } from "@t3tools/client-runtime/connection";
 import { ThreadContextDragGhost } from "./chat/ThreadContextDragGhost";

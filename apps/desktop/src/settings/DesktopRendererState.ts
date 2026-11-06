@@ -1,6 +1,6 @@
 import type { DesktopRendererStateKey } from "@t3tools/contracts";
 import * as Context from "effect/Context";
-import * as Crypto from "effect/Crypto";
+import * as SecureRandom from "effect/crypto/SecureRandom";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
@@ -137,11 +137,11 @@ const writeState = Effect.fn("desktop.rendererState.writeState")(function* (inpu
   );
 });
 
-export const make = Effect.gen(function* () {
+const make = Effect.gen(function* () {
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
   const fileSystem = yield* FileSystem.FileSystem;
   const pathService = yield* Path.Path;
-  const crypto = yield* Crypto.Crypto;
+  const random = yield* SecureRandom.SecureRandom;
   const writeLock = yield* Semaphore.make(1);
 
   return DesktopRendererState.of({
@@ -169,7 +169,7 @@ export const make = Effect.gen(function* () {
               return;
             }
 
-            const suffix = yield* crypto.randomUUIDv4().pipe(
+            const suffix = yield* random.uuidV4().pipe(
               Effect.map((uuid) => uuid.replace(/-/g, "")),
               Effect.mapError(
                 (cause) =>

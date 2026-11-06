@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   ServerAddonActionError,
   type PersistFleetAgentRegistrationInput,
@@ -57,9 +58,10 @@ const requestJson = Effect.fn("persist.requestJson")(function* (
 export const registerPersistFleetAgent = Effect.fn("persist.registerFleetAgent")(function* (
   input: PersistFleetAgentRegistrationInput,
 ) {
+  const environment = yield* HostProcess.Environment;
   const token = yield* resolvePersistToken;
   if (token === null) return yield* actionError("PERSIST authentication is unavailable.");
-  const daemonUrl = (process.env.PERSIST_URL ?? DEFAULT_DAEMON_URL).replace(/\/$/, "");
+  const daemonUrl = (environment.PERSIST_URL ?? DEFAULT_DAEMON_URL).replace(/\/$/, "");
 
   yield* requestJson(
     "PUT",

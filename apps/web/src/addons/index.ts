@@ -188,7 +188,6 @@ export type {
   ComposerAddonContributionInput,
   ComposerAddonSubmissionPayload,
 } from "./composer";
-export { bundledWebAddons, validateWebAddons } from "./registry";
 export type { WebAddon } from "./registry";
 export { flattenSidebarAddonGroups, groupThreadsWithAddonContributions } from "./sidebar";
 export type {

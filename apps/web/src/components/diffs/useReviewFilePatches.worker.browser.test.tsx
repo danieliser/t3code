@@ -148,7 +148,7 @@ it("reopening keeps the parse while source queries revalidate", async () => {
 it("keeps a later file's parse while its source query refreshes", async () => {
   const h = setup(["a.ts", "b.ts", "c.ts", "d.ts", "e.ts"]);
   await using screen = await render(h.ui());
-  h.latest().requestFile(4);
+  h.latest().requestFile("e.ts");
   await vi.waitFor(() => expect(h.requestsFor("e.ts")).toBe(1));
   h.complete("e.ts", "first");
   await expect.element(screen.getByText("e.ts first")).toBeInTheDocument();

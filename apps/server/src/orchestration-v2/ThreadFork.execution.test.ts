@@ -1007,7 +1007,7 @@ it.effect("a side chat of an idle parent still starts with the framing note", ()
     );
     assert.equal(
       (yield* orchestrator.getThreadProjection(sideChatId)).thread.runtimeMode,
-      "full-access",
+      "approval-required",
     );
     yield* orchestrator.dispatch({
       type: "thread.runtime-mode.set",
@@ -1017,7 +1017,7 @@ it.effect("a side chat of an idle parent still starts with the framing note", ()
     });
     assert.equal(
       (yield* orchestrator.getThreadProjection(sideChatId)).thread.runtimeMode,
-      "full-access",
+      "approval-required",
     );
     yield* orchestrator.dispatch({
       type: "thread.runtime-mode.set",
@@ -1181,7 +1181,7 @@ it.effect("a side chat opened during the parent's first turn starts from a diges
     yield* fork("side-chat-busy-fork", parentId, sideChatId);
     const created = yield* orchestrator.getThreadProjection(sideChatId);
     assert.isTrue(created.thread.lineage.sideChat);
-    assert.equal(created.thread.runtimeMode, "full-access");
+    assert.equal(created.thread.runtimeMode, "approval-required");
     assert.isNull(created.thread.forkedFrom);
     assert.deepEqual(created.contextTransfers[0]?.sourcePoint, { threadId: parentId });
 

@@ -43,7 +43,6 @@ import {
   resolveModelPreferences,
 } from "@t3tools/shared/serverSettings";
 import * as Equal from "effect/Equal";
-import { readRendererStateWithRetries } from "~/rendererStateStorage";
 import * as Struct from "effect/Struct";
 import * as Option from "effect/Option";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -224,9 +223,7 @@ export async function hydrateClientSettings(): Promise<void> {
   }
   const nextHydration = (async () => {
     try {
-      const persistedSettings = await readRendererStateWithRetries(() =>
-        ensureLocalApi().persistence.getClientSettings(),
-      );
+      const persistedSettings = await ensureLocalApi().persistence.getClientSettings();
       if (hydrationGeneration !== clientSettingsHydrationGeneration) {
         return;
       }

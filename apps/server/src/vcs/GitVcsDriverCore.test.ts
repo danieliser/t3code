@@ -4957,9 +4957,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
               (arg) => arg === "worktree" || arg === "worktree-fast",
             );
             if (index === -1 || command.args[index + 1] !== "add") return delegate.spawn(command);
-            subcommands.push(command.args[index]!);
+            subcommands.push(String(command.args[index]!));
             if (command.args[index] === "worktree") return delegate.spawn(command);
-            searchPaths.push(command.options.env?.PATH);
+            const searchPath = command.options.env?.PATH;
+            searchPaths.push(typeof searchPath === "string" ? searchPath : undefined);
             if (outcome === "succeeds") {
               const args = command.args.map((arg, position) =>
                 position === index ? "worktree" : arg,
@@ -4991,7 +4992,10 @@ it.layer(layerTest)("GitVcsDriver core integration", (it) => {
 
           assert.deepEqual(subcommands, [...ran]);
           for (const searchPath of searchPaths) {
-            assert.equal(searchPath, `${process.env.PATH}:${bundledDirectory}`);
+            assert.equal(
+              searchPath,
+              `${(yield* HostProcess.Environment).PATH}:${bundledDirectory}`,
+            );
           }
           assert.equal(Exit.isSuccess(created), outcome !== "leaves a folder");
           if (Exit.isSuccess(created)) {

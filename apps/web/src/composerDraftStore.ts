@@ -122,7 +122,7 @@ const isEnvironmentContextRecord = Schema.is(EnvironmentContextRecord);
 const isSnapShotSource = Schema.is(SnapShotSource);
 const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
 
-export { COMPOSER_DRAFT_STORAGE_KEY, COMPOSER_PREFERENCES_STORAGE_KEY };
+export { COMPOSER_DRAFT_STORAGE_KEY };
 const COMPOSER_DRAFT_STORAGE_VERSION = 9;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
@@ -4370,8 +4370,6 @@ function serializeComposerPreferences(
     stickyActiveProvider: state.stickyActiveProvider,
   } satisfies PersistedComposerPreferences);
 }
-
-export { parsePersistedComposerPreferences };
 
 function hasComposerPreferences(preferences: PersistedComposerPreferences): boolean {
   return (

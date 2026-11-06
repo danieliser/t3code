@@ -14,7 +14,7 @@ import {
   hydrateUiStateStore,
 } from "./uiStateStore";
 
-export const CLIENT_PERSISTENCE_HYDRATION_TIMEOUT_MS = 3_000;
+const CLIENT_PERSISTENCE_HYDRATION_TIMEOUT_MS = 3_000;
 let disposeRendererStateFlushHandler: (() => void) | null = null;
 
 export async function waitForClientPersistenceFlushes(
@@ -27,7 +27,7 @@ export async function waitForClientPersistenceFlushes(
   }
 }
 
-export function flushClientRendererPersistence(): Promise<void> {
+function flushClientRendererPersistence(): Promise<void> {
   return waitForClientPersistenceFlushes([
     flushClientSettingsPersistence(),
     flushUiStatePersistence(),
@@ -35,7 +35,7 @@ export function flushClientRendererPersistence(): Promise<void> {
   ]);
 }
 
-export function installRendererStateFlushHandler(): void {
+function installRendererStateFlushHandler(): void {
   if (
     disposeRendererStateFlushHandler !== null ||
     typeof window === "undefined" ||
@@ -79,9 +79,4 @@ export async function hydrateClientPersistence(): Promise<void> {
       `[CLIENT_PERSISTENCE] Initial hydration exceeded ${CLIENT_PERSISTENCE_HYDRATION_TIMEOUT_MS}ms; durable renderer writes remain guarded while the in-flight hydration completes in the background.`,
     );
   }
-}
-
-export function __resetClientPersistenceBootstrapForTests(): void {
-  disposeRendererStateFlushHandler?.();
-  disposeRendererStateFlushHandler = null;
 }

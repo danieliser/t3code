@@ -949,6 +949,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const isServerInternalPath = yield* makeIsServerInternalPath;
   const digest = yield* Digest.Digest;
   const hostPlatform = yield* HostProcess.Platform;
+  const environment = yield* HostProcess.Environment;
   const serviceScope = yield* Effect.scope;
   const statusFetches = new Map<string, Fiber.Fiber<void, GitCommandError>>();
   const statusFetchProcesses = yield* Semaphore.make(4);
@@ -4302,53 +4303,57 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
               }
             : {}),
         },
-      ).pipe(
-        Effect.onError(() =>
-          newRefName
-            ? deleteLocalBranch({ cwd: input.cwd, refName: newRefName, force: true }).pipe(
-                Effect.catch((cause) =>
-                  Effect.logWarning("could not remove the branch of a failed worktree", { cause }),
-                ),
-              )
-            : Effect.void,
-        ),
       );
-    if (options?.worktreeFast === true && hostPlatform === "darwin") {
-      // Concatenated rather than resolved so `..` keeps following symlinks, as Git does.
-      const resolvedWorktreePath = path.isAbsolute(worktreePath)
-        ? worktreePath
-        : `${input.cwd}${path.sep}${worktreePath}`;
-      // A git-worktree-fast before 0.2.0 on the user's PATH hands a missing parent folder to Git's slow checkout.
-      yield* fileSystem
-        .makeDirectory(path.dirname(resolvedWorktreePath), { recursive: true })
-        .pipe(Effect.ignore);
-      yield* addWorktree(
-        "worktree-fast",
-        worktreeFastEnv({
-          bundledPath: worktreeFastPath,
-          pathEnv: process.env.PATH,
-          dirname: path.dirname,
-        }),
-      ).pipe(
-        Effect.catch((error) =>
-          Effect.gen(function* () {
-            // A worktree left behind by the failed add would make Git's retry fail for the wrong reason.
-            if (
-              yield* fileSystem.exists(resolvedWorktreePath).pipe(Effect.orElseSucceed(() => true))
-            ) {
-              return yield* error;
-            }
-            yield* Effect.logWarning(
-              "git worktree-fast add failed; creating the worktree with git worktree add",
-              { worktreePath, cause: error },
-            );
-            yield* addWorktree("worktree");
+    yield* Effect.gen(function* () {
+      if (options?.worktreeFast === true && hostPlatform === "darwin") {
+        // Concatenated rather than resolved so `..` keeps following symlinks, as Git does.
+        const resolvedWorktreePath = path.isAbsolute(worktreePath)
+          ? worktreePath
+          : `${input.cwd}${path.sep}${worktreePath}`;
+        // A git-worktree-fast before 0.2.0 on the user's PATH hands a missing parent folder to Git's slow checkout.
+        yield* fileSystem
+          .makeDirectory(path.dirname(resolvedWorktreePath), { recursive: true })
+          .pipe(Effect.ignore);
+        yield* addWorktree(
+          "worktree-fast",
+          worktreeFastEnv({
+            bundledPath: worktreeFastPath,
+            pathEnv: environment.PATH,
+            dirname: path.dirname,
           }),
-        ),
-      );
-    } else {
-      yield* addWorktree("worktree");
-    }
+        ).pipe(
+          Effect.catch((error) =>
+            Effect.gen(function* () {
+              // A worktree left behind by the failed add would make Git's retry fail for the wrong reason.
+              if (
+                yield* fileSystem
+                  .exists(resolvedWorktreePath)
+                  .pipe(Effect.orElseSucceed(() => true))
+              ) {
+                return yield* error;
+              }
+              yield* Effect.logWarning(
+                "git worktree-fast add failed; creating the worktree with git worktree add",
+                { worktreePath, cause: error },
+              );
+              yield* addWorktree("worktree");
+            }),
+          ),
+        );
+      } else {
+        yield* addWorktree("worktree");
+      }
+    }).pipe(
+      Effect.onError(() =>
+        newRefName
+          ? deleteLocalBranch({ cwd: input.cwd, refName: newRefName, force: true }).pipe(
+              Effect.catch((cause) =>
+                Effect.logWarning("could not remove the branch of a failed worktree", { cause }),
+              ),
+            )
+          : Effect.void,
+      ),
+    );
 
     if (progress?.onWorktreeClaimed) {
       yield* progress.onWorktreeClaimed(worktreePath);

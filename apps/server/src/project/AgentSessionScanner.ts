@@ -1395,18 +1395,15 @@ export const make = Effect.gen(function* () {
       }
     }
 
-    return Array.from(
-      byOwnerAndCwd.values(),
-      (group): RawCandidate => ({
-        cwd: group.cwd,
-        source,
-        providerInstanceId: group.providerInstanceId,
-        homePath: group.homePath,
-        threadCount: group.transcripts.length,
-        lastActiveAtMs: group.lastActiveAtMs,
-        transcripts: group.transcripts,
-      }),
-    );
+    return Array.from(byOwnerAndCwd.values(), (group): RawCandidate => ({
+      cwd: group.cwd,
+      source,
+      providerInstanceId: group.providerInstanceId,
+      homePath: group.homePath,
+      threadCount: group.transcripts.length,
+      lastActiveAtMs: group.lastActiveAtMs,
+      transcripts: group.transcripts,
+    }));
   });
 
   const collectCandidates = Effect.fn("AgentSessionScanner.collectCandidates")(function* () {

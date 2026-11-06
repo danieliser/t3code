@@ -407,32 +407,6 @@ export function subscribeDynamic<TTag extends EnvironmentSubscriptionRpcTag>(
   return subscribeDynamicMapped(tag, makeInput, (_session, stream) => stream, options);
 }
 
-/** Keeps per-subscription context attached to each value across reconnects. */
-export function subscribeDynamicWithContext<TTag extends EnvironmentSubscriptionRpcTag, TContext>(
-  tag: TTag,
-  makeInput: (session: RpcSession) => Effect.Effect<readonly [EnvironmentRpcInput<TTag>, TContext]>,
-  options?: SubscriptionOptions<TTag>,
-): Stream.Stream<
-  readonly [value: EnvironmentRpcStreamValue<TTag>, context: TContext],
-  EnvironmentRpcStreamFailure<TTag>,
-  EnvironmentSupervisor.EnvironmentSupervisor
-> {
-  const contextBySession = new WeakMap<RpcSession, TContext>();
-  return subscribeDynamicMapped(
-    tag,
-    (session) =>
-      makeInput(session).pipe(
-        Effect.map(([input, context]) => {
-          contextBySession.set(session, context);
-          return input;
-        }),
-      ),
-    (session, stream) =>
-      stream.pipe(Stream.map((value) => [value, contextBySession.get(session)!] as const)),
-    options,
-  );
-}
-
 /** Tags each value before `switchMap` can buffer it across a session change. */
 export function subscribeDynamicWithSession<TTag extends EnvironmentSubscriptionRpcTag>(
   tag: TTag,

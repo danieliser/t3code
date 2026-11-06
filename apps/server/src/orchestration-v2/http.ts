@@ -1,6 +1,10 @@
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 import * as Option from "effect/Option";
-import { injectPersistContext } from "../addons/persist/PersistContextInjection.ts";
+import {
+  getPersistContextCapabilities,
+  readPersistContextReceipt,
+  injectPersistContext,
+} from "../addons/persist/PersistContextInjection.ts";
 import {
   AuthOrchestrationReadScope,
   AuthOrchestrationOperateScope,
@@ -8,6 +12,7 @@ import {
   type OrchestrationProjectShell,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as Digest from "effect/crypto/Digest";
 import * as Result from "effect/Result";
 import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
@@ -33,6 +38,8 @@ import {
   THREAD_HISTORY_PAGE_POLICY,
   OLDER_THREAD_USER_TURN_LIMIT,
 } from "./threadHistoryPaging.ts";
+import * as ThreadMessageIntake from "./ThreadMessageIntake.ts";
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import { loadSubscriberShellSnapshot } from "./ShellStream.ts";
@@ -58,9 +65,14 @@ export const layer = HttpApiBuilder.group(
   "orchestration",
   Effect.fnUntraced(function* (handlers) {
     const sql = yield* SqlClient.SqlClient;
+    const digest = yield* Digest.Digest;
     const environment = yield* ServerEnvironment.ServerEnvironmentIdentity;
     const contextInjectionSessions = yield* Effect.serviceOption(ProviderSessionManagerV2);
     const threadManagement = yield* ThreadManagementService.ThreadManagementService;
+    const dispatchContext = yield* Effect.context<
+      | Effect.Services<ReturnType<typeof ThreadMessageIntake.dispatchCommand>>
+      | ThreadLaunchService.ThreadLaunchService
+    >();
     const applicationEvents = yield* OrchestrationEventStore.OrchestrationEventStore;
     const projectStore = yield* ProjectStore.ProjectStoreV2;
     const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
@@ -181,6 +193,37 @@ export const layer = HttpApiBuilder.group(
             ...args.payload,
           }).pipe(
             Effect.provideService(ProviderSessionManagerV2, contextInjectionSessions.value),
+            Effect.provideService(SqlClient.SqlClient, sql),
+            Effect.provideService(Digest.Digest, digest),
+            Effect.provideService(
+              ThreadManagementService.ThreadManagementService,
+              threadManagement,
+            ),
+            Effect.catchTags({
+              PersistContextInjectionError: Effect.fnUntraced(function* (cause) {
+                if (cause.reason === "payload_conflict")
+                  return yield* failEnvironmentInvalidRequest("invalid_command");
+                return yield* failEnvironmentInternal("internal_error", cause);
+              }),
+            }),
+          );
+        }),
+      )
+      .handle(
+        "persistContextCapabilities",
+        Effect.fn("http.persist.contextCapabilities")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          if (Option.isNone(contextInjectionSessions))
+            return {
+              supported: false,
+              providerSessionId: null,
+              startsTurn: false as const,
+              timing: "next-model-request" as const,
+              modelConsumption: "unproven" as const,
+            };
+          return yield* getPersistContextCapabilities(args.params.threadId).pipe(
+            Effect.provideService(ProviderSessionManagerV2, contextInjectionSessions.value),
             Effect.provideService(
               ThreadManagementService.ThreadManagementService,
               threadManagement,
@@ -189,6 +232,62 @@ export const layer = HttpApiBuilder.group(
               PersistContextInjectionError: (cause) =>
                 failEnvironmentInternal("internal_error", cause),
             }),
+          );
+        }),
+      )
+      .handle(
+        "persistContextReceipt",
+        Effect.fn("http.persist.contextReceipt")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationReadScope);
+          return yield* readPersistContextReceipt(
+            args.params.threadId,
+            args.params.injectionId,
+          ).pipe(
+            Effect.provideService(SqlClient.SqlClient, sql),
+            Effect.catchTags({
+              PersistContextInjectionError: Effect.fnUntraced(function* (cause) {
+                if (cause.reason === "receipt_not_found")
+                  return yield* failEnvironmentNotFound("thread_not_found");
+                return yield* failEnvironmentInternal("internal_error", cause);
+              }),
+            }),
+          );
+        }),
+      )
+      .handle(
+        "dispatch",
+        Effect.fn("http.orchestration.dispatch")(function* (args) {
+          yield* annotateEnvironmentRequest(args.endpoint.name);
+          yield* requireEnvironmentScope(AuthOrchestrationOperateScope);
+          const command = ThreadManagementService.withCreationProvenance(args.payload, {
+            createdBy: "user",
+            creationSource: "creationSource" in args.payload ? args.payload.creationSource : "mcp",
+          });
+          return yield* Effect.gen(function* () {
+            if (command.type === "prepared-run.retry") {
+              const launches = yield* ThreadLaunchService.ThreadLaunchService;
+              return yield* launches.retryPreparation(command);
+            }
+            return yield* ThreadMessageIntake.dispatchCommand(command);
+          }).pipe(
+            Effect.provide(dispatchContext),
+            Effect.map((result) => ({ sequence: result.sequence })),
+            Effect.catch(
+              Effect.fnUntraced(function* (cause) {
+                switch (cause._tag) {
+                  case "OrchestratorCommandRejectedError":
+                  case "OrchestratorCommandPreviouslyRejectedError":
+                  case "OrchestratorCommandIdConflictError":
+                  case "OrchestratorThreadAlreadyExistsError":
+                  case "ThreadManagementProviderInstanceDisabledError":
+                  case "AttachmentClaimError":
+                    return yield* failEnvironmentInvalidRequest("invalid_command");
+                  default:
+                    return yield* failEnvironmentInternal("internal_error", cause);
+                }
+              }),
+            ),
           );
         }),
       )

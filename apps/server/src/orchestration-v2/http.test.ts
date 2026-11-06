@@ -1,3 +1,4 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import {
   AuthSessionId,
   type AuthEnvironmentScope,
@@ -37,6 +38,9 @@ import * as OrchestrationHttp from "./http.ts";
 import { EventSinkV2 } from "./EventSink.ts";
 import * as ProjectStore from "./ProjectStore.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
+import * as DocumentText from "../provider/DocumentText.ts";
+import * as ServerConfig from "../config.ts";
+import * as ThreadLaunchService from "./ThreadLaunchService.ts";
 import * as ThreadManagementService from "./ThreadManagementService.ts";
 import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
 import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
@@ -97,7 +101,7 @@ const items = Schema.decodeUnknownSync(Schema.Array(OrchestrationV2TurnItem))(
 );
 
 // Serves the orchestration HTTP routes over real stores; `allowed` gates the read scope.
-const serveOrchestrationHttp = (allowed: () => boolean) =>
+const serveOrchestrationHttp = (allowed: () => boolean, canOperate = () => false) =>
   Effect.gen(function* () {
     const runtime = ProviderReplayHarness.layerWithRegistry(
       { name: "thread-transcript" },
@@ -130,6 +134,7 @@ const serveOrchestrationHttp = (allowed: () => boolean) =>
     });
     const routes = HttpApiBuilder.layer(TranscriptTestApi).pipe(
       Layer.provide(OrchestrationHttp.layer),
+      Layer.provide(NodeCrypto.layer),
       Layer.provide(
         Layer.succeed(ServerEnvironment.ServerEnvironmentIdentity, {
           getEnvironmentId: Effect.succeed(environmentId),
@@ -143,13 +148,20 @@ const serveOrchestrationHttp = (allowed: () => boolean) =>
                 sessionId: AuthSessionId.make("test-session"),
                 subject: "test",
                 method: "bearer-access-token",
-                scopes: new Set<AuthEnvironmentScope>(allowed() ? ["orchestration:read"] : []),
+                scopes: new Set<AuthEnvironmentScope>([
+                  ...(allowed() ? ["orchestration:read" as const] : []),
+                  ...(canOperate() ? ["orchestration:operate" as const] : []),
+                ]),
               }),
             ),
           ),
         ),
       ),
       Layer.provide(Layer.succeedContext(services)),
+      Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+      Layer.provide(Layer.mock(DocumentText.DocumentText)({})),
+      Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-http-dispatch-" })),
+      Layer.provide(ServerSettings.layerTest()),
       Layer.provide(Layer.mock(ProjectEnrichmentService)({})),
       Layer.provide(HttpPlatform.layer),
       Layer.provide(Etag.layerWeak),
@@ -292,5 +304,91 @@ it.effect("leaves older settled threads out of the HTTP shell only when asked", 
       [thread.id, ...Array.from({ length: 25 }, (_, index) => `settled-${index + 1}`)].toSorted(),
     );
     expect(cut.olderSettled?.counts).toEqual([{ projectId: thread.projectId, count: 1 }]);
+  }),
+);
+
+it.effect("dispatches V2 HTTP commands with protocol and scope guards and replays receipts", () =>
+  Effect.gen(function* () {
+    let operate = false;
+    const { handler } = yield* serveOrchestrationHttp(
+      () => true,
+      () => operate,
+    );
+    const headers = {
+      "content-type": "application/json",
+      [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT,
+    };
+    const command = { type: "thread.settle", commandId: "http-settle", threadId: thread.id };
+    const dispatch = (body: unknown, requestHeaders: Record<string, string> = headers) =>
+      Effect.promise(() =>
+        handler(
+          new Request("http://localhost/api/orchestration/dispatch", {
+            method: "POST",
+            headers: requestHeaders,
+            body: JSON.stringify(body),
+          }),
+        ),
+      );
+    const read = (requestHeaders: Record<string, string> = headers, id = thread.id) =>
+      Effect.promise(() =>
+        handler(
+          new Request(`http://localhost/api/orchestration/threads/${encodeURIComponent(id)}`, {
+            headers: requestHeaders,
+          }),
+        ),
+      );
+    expect((yield* read()).status).toBe(200);
+    const capabilities = yield* Effect.promise(() =>
+      handler(
+        new Request(`http://localhost/api/orchestration/threads/${thread.id}/context-injections`, {
+          headers,
+        }),
+      ),
+    );
+    expect(capabilities.status).toBe(200);
+    expect(yield* Effect.promise(() => capabilities.json())).toMatchObject({
+      supported: false,
+      startsTurn: false,
+      modelConsumption: "unproven",
+    });
+    const missingReceipt = yield* Effect.promise(() =>
+      handler(
+        new Request(
+          `http://localhost/api/orchestration/threads/${thread.id}/context-injections/missing`,
+          { headers },
+        ),
+      ),
+    );
+    expect(missingReceipt.status).toBe(404);
+    expect((yield* read({ "content-type": "application/json" })).status).toBe(400);
+    expect((yield* read(headers, ThreadId.make("missing"))).status).toBe(404);
+    expect((yield* dispatch(command)).status).toBe(403);
+    operate = true;
+    expect((yield* dispatch(command, { "content-type": "application/json" })).status).toBe(400);
+    expect((yield* dispatch({ type: "thread.turn.start" })).status).toBe(400);
+    const accepted = yield* dispatch(command);
+    expect(accepted.status).toBe(200);
+    const receipt = yield* Effect.promise(() => accepted.json());
+    expect(receipt).toMatchObject({ sequence: expect.any(Number) });
+    const replayed = yield* dispatch(command);
+    expect(replayed.status).toBe(200);
+    expect(yield* Effect.promise(() => replayed.json())).toEqual(receipt);
+    const detail = yield* read();
+    expect(yield* Effect.promise(() => detail.json())).toMatchObject({
+      projection: { thread: { settledOverride: "settled" } },
+    });
+    const wake = yield* dispatch({
+      type: "message.dispatch",
+      commandId: "http-settled-wake",
+      messageId: "http-wake-message",
+      threadId: thread.id,
+      text: 'PERSIST_WAKE\nMailbox: "fixture"\nMessages: 1',
+      attachments: [],
+      ifThreadUnsettled: true,
+      creationSource: "mcp",
+      dispatchMode: { type: "start_immediately" },
+    });
+    expect(wake.status).toBe(400);
+    expect(yield* Effect.promise(() => wake.json())).toMatchObject({ reason: "invalid_command" });
   }),
 );

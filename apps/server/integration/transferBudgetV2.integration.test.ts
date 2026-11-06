@@ -1,3 +1,7 @@
+import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as ServerConfig from "../src/config.ts";
+import * as DocumentText from "../src/provider/DocumentText.ts";
+import * as ThreadLaunchService from "../src/orchestration-v2/ThreadLaunchService.ts";
 // @effect-diagnostics nodeBuiltinImport:off - Measures real local HTTP/WebSocket sockets.
 import * as NodeHttp from "node:http";
 import * as NodeUtil from "node:util";
@@ -189,7 +193,11 @@ const layerHandlers = group.toLayer({
 const layerRoutes = Layer.mergeAll(
   HttpApiBuilder.layer(TransferApi).pipe(
     Layer.provide(OrchestrationHttp.layer),
+    Layer.provide(NodeCrypto.layer),
     Layer.provide(layerAuth),
+    Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+    Layer.provide(Layer.mock(DocumentText.DocumentText)({})),
+    Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "t3-transfer-dispatch-" })),
   ),
   RpcServer.layerHttp({ group, path: "/ws", protocol: "websocket" }).pipe(
     Layer.provide(layerHandlers),

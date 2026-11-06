@@ -111,7 +111,7 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironmen
           Effect.provideService(HostProcess.Environment, {}),
         );
         expect(descriptor.capabilities.serverInstallation).toEqual(
-          mode === "web" ? { kind: "npm-global", prefix } : undefined,
+          mode === "web" ? { kind: "npm-global", prefix: yield* fs.realPath(prefix) } : undefined,
         );
         expect(descriptor.capabilities.serverSelfUpdate).toBe(
           mode === "web" ? undefined : "desktop-managed",
@@ -314,7 +314,8 @@ it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("ServerEnvironmen
           command.args[0] === "worktree-fast" &&
           (location === "on PATH" ||
             (location === "bundled" &&
-              command.options.env?.PATH?.endsWith(`:${bundledDirectory}`) === true));
+              typeof command.options.env?.PATH === "string" &&
+              command.options.env.PATH.endsWith(`:${bundledDirectory}`)));
         const spawner = ChildProcessSpawner.make((command) =>
           Effect.succeed(
             ChildProcessSpawner.makeHandle({

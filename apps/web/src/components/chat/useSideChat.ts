@@ -11,7 +11,7 @@ import { useRef } from "react";
 import { newMessageId, newThreadId } from "~/lib/utils";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { useRightPanelStore } from "../../rightPanelStore";
-import { waitForThreadShell } from "../../state/entities";
+import { readThreadShell, waitForThreadShell } from "../../state/entities";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";

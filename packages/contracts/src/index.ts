@@ -65,6 +65,7 @@ export * from "./previewAutomation.ts";
 export * from "./previewCapture.ts";
 export * from "./resourceTelemetry.ts";
 export * from "./persistFleet.ts";
+export * from "./persistContext.ts";
 export * from "./addon.ts";
 export * from "./usage.ts";
 export * from "./scheduledTask.ts";

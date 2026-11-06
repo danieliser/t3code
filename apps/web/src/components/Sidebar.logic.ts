@@ -640,38 +640,6 @@ export async function deleteSelectedThreadEntries<
   return { deletedThreadKeys, firstFailure };
 }
 
-export async function archiveSelectedThreadEntries<
-  TEntry extends { readonly threadKey: string },
-  TResult extends { readonly _tag: "Success" | "Failure" },
->(input: {
-  entries: readonly TEntry[];
-  archive: (entry: TEntry, onArchived: () => void) => Promise<TResult>;
-}): Promise<{
-  archivedThreadKeys: readonly string[];
-  mutationFailure: Extract<TResult, { readonly _tag: "Failure" }> | null;
-  followupFailures: readonly Extract<TResult, { readonly _tag: "Failure" }>[];
-}> {
-  const archivedThreadKeys: string[] = [];
-  const followupFailures: Extract<TResult, { readonly _tag: "Failure" }>[] = [];
-
-  for (const entry of input.entries) {
-    let didArchive = false;
-    const result = await input.archive(entry, () => {
-      didArchive = true;
-    });
-    if (didArchive || result._tag === "Success") archivedThreadKeys.push(entry.threadKey);
-    if (result._tag === "Success") continue;
-    const failure = result as Extract<TResult, { readonly _tag: "Failure" }>;
-    if (didArchive) {
-      followupFailures.push(failure);
-      continue;
-    }
-    return { archivedThreadKeys, mutationFailure: failure, followupFailures };
-  }
-
-  return { archivedThreadKeys, mutationFailure: null, followupFailures };
-}
-
 export function isSidebarHiddenThread(thread: Pick<SidebarThreadSummary, "lineage">): boolean {
   return !isListedThreadLineage(thread.lineage);
 }
@@ -836,10 +804,10 @@ type SidebarThreadFilterInput = Pick<
   readonly isExplicitlyUnread?: boolean | undefined;
 };
 
-export const SIDEBAR_RECENT_WINDOW_DAYS = 7;
+const SIDEBAR_RECENT_WINDOW_DAYS = 7;
 const SIDEBAR_RECENT_WINDOW_MS = SIDEBAR_RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1_000;
 
-export function resolveSidebarThreadFilterStatuses(
+function resolveSidebarThreadFilterStatuses(
   statuses: ReadonlyArray<SidebarThreadFilterStatus>,
 ): ReadonlyArray<SidebarThreadFilterStatus> {
   return statuses.length === 0 ? SIDEBAR_THREAD_FILTER_STATUSES : statuses;
@@ -861,7 +829,7 @@ function latestValidTimestampMs(...timestamps: ReadonlyArray<string | null>): nu
   return latestTimestampMs;
 }
 
-export function classifySidebarThreadFilterStatus(
+function classifySidebarThreadFilterStatus(
   thread: SidebarThreadFilterInput & { readonly lastVisitedAt?: string | undefined },
 ): SidebarThreadFilterStatus {
   const needsAttention =
@@ -954,7 +922,7 @@ export function matchesSidebarThreadFilters(input: {
   return selectedStatuses.includes(status) || (isUnread && selectedStatuses.includes("unread"));
 }
 
-export function hasNarrowingSidebarThreadFilters(filters: SidebarThreadFilters): boolean {
+function hasNarrowingSidebarThreadFilters(filters: SidebarThreadFilters): boolean {
   const selectedStatuses = new Set(resolveSidebarThreadFilterStatuses(filters.statuses));
   const includesEveryStatus = SIDEBAR_THREAD_FILTER_STATUSES.every((status) =>
     selectedStatuses.has(status),
@@ -1477,60 +1445,6 @@ export function resolveThreadStatusPill(input: {
   }
 
   return null;
-}
-
-export function getVisibleThreadsForProject<T>(input: {
-  threads: readonly T[];
-  activeThreadKey: string | null;
-  getThreadKey: (thread: T) => string;
-  isThreadListExpanded: boolean;
-  previewLimit: number;
-}): {
-  hasHiddenThreads: boolean;
-  visibleThreads: T[];
-  hiddenThreads: T[];
-} {
-  const { activeThreadKey, getThreadKey, isThreadListExpanded, previewLimit, threads } = input;
-  const hasHiddenThreads = threads.length > previewLimit;
-
-  if (!hasHiddenThreads || isThreadListExpanded) {
-    return {
-      hasHiddenThreads,
-      hiddenThreads: [],
-      visibleThreads: [...threads],
-    };
-  }
-
-  const previewThreads = threads.slice(0, previewLimit);
-  if (
-    activeThreadKey === null ||
-    previewThreads.some((thread) => getThreadKey(thread) === activeThreadKey)
-  ) {
-    return {
-      hasHiddenThreads: true,
-      hiddenThreads: threads.slice(previewLimit),
-      visibleThreads: previewThreads,
-    };
-  }
-
-  const activeThread = threads.find((thread) => getThreadKey(thread) === activeThreadKey);
-  if (!activeThread) {
-    return {
-      hasHiddenThreads: true,
-      hiddenThreads: threads.slice(previewLimit),
-      visibleThreads: previewThreads,
-    };
-  }
-
-  const visibleThreadKeys = new Set(
-    [...previewThreads, activeThread].map((thread) => getThreadKey(thread)),
-  );
-
-  return {
-    hasHiddenThreads: true,
-    hiddenThreads: threads.filter((thread) => !visibleThreadKeys.has(getThreadKey(thread))),
-    visibleThreads: threads.filter((thread) => visibleThreadKeys.has(getThreadKey(thread))),
-  };
 }
 
 export function getFallbackThreadIdAfterDelete<

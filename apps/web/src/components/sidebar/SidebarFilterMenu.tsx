@@ -46,14 +46,14 @@ export interface SidebarFilterProviderOption {
   readonly label: string;
 }
 
-export function toggleSidebarFilterValue<T>(values: readonly T[], value: T, checked: boolean): T[] {
+function toggleSidebarFilterValue<T>(values: readonly T[], value: T, checked: boolean): T[] {
   if (checked) {
     return values.includes(value) ? [...values] : [...values, value];
   }
   return values.filter((candidate) => candidate !== value);
 }
 
-export function toggleSidebarFilterValues<T>(
+function toggleSidebarFilterValues<T>(
   values: readonly T[],
   toggledValues: readonly T[],
   checked: boolean,

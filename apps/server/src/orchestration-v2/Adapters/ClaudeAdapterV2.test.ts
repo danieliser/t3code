@@ -9280,7 +9280,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 tools: { type: "preset", preset: "claude_code" },
                 permissionMode: "bypassPermissions",
                 allowDangerouslySkipPermissions: true,
-                settings: { showThinkingSummaries: true },
+                settings: { env: { ENABLE_TOOL_SEARCH: "true" }, showThinkingSummaries: true },
                 sessionId: WAKE_NATIVE_SESSION,
               },
             },

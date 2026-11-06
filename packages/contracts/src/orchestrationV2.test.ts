@@ -639,3 +639,21 @@ describe("latestProviderTurnForAttempt", () => {
     expect(latestProviderTurnForAttempt(turns, null)).toBeUndefined();
   });
 });
+
+it("decodes PERSIST wake commands without caller-supplied provenance", () => {
+  const decode = Schema.decodeUnknownSync(OrchestrationV2RpcSchemas.dispatchCommand.input);
+  const command = {
+    type: "message.dispatch",
+    commandId: "persist-wake",
+    messageId: "persist-message",
+    threadId: "mcp:launch:fixture",
+    text: 'PERSIST_WAKE\nMailbox: "fixture"\nMessages: 1',
+    attachments: [],
+    ifThreadUnsettled: true,
+    creationSource: "mcp",
+    dispatchMode: { type: "start_immediately" },
+  };
+  expect(decode(command)).toMatchObject({ ...command, createdBy: "user" });
+  expect(() => decode({ ...command, createdBy: "invalid" })).toThrow();
+  expect(() => decode({ ...command, type: "thread.turn.start" })).toThrow();
+});

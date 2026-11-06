@@ -1,3 +1,4 @@
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import {
   PERSIST_FLEET_CONTRACT_VERSION,
   PersistBoardsApiResponse,
@@ -114,11 +115,12 @@ export function attachPersistThreadRoutes(
 }
 
 export const resolvePersistToken = Effect.gen(function* () {
-  const fromEnvironment = process.env.PERSIST_AUTH_TOKEN?.trim();
+  const environment = yield* HostProcess.Environment;
+  const fromEnvironment = environment.PERSIST_AUTH_TOKEN?.trim();
   if (fromEnvironment) return fromEnvironment;
   const tokenFile =
-    process.env.PERSIST_V3_TOKEN_FILE ??
-    `${process.env.HOME ?? ""}/.local/share/persist-v3/initial_token.txt`;
+    environment.PERSIST_V3_TOKEN_FILE ??
+    `${environment.HOME ?? ""}/.local/share/persist-v3/initial_token.txt`;
   const fileSystem = yield* FileSystem.FileSystem;
   return yield* fileSystem.readFileString(tokenFile).pipe(
     Effect.map((value) => value.trim() || null),
@@ -129,6 +131,7 @@ export const resolvePersistToken = Effect.gen(function* () {
 export const readPersistFleet = Effect.fn("persist.readFleet")(function* (input: {
   readonly includeOffline?: boolean | undefined;
 }) {
+  const environment = yield* HostProcess.Environment;
   const token = yield* resolvePersistToken;
   if (token === null) {
     return yield* new PersistFleetUnavailableError({
@@ -136,7 +139,7 @@ export const readPersistFleet = Effect.fn("persist.readFleet")(function* (input:
     });
   }
   const httpClient = yield* HttpClient.HttpClient;
-  const daemonUrl = (process.env.PERSIST_URL ?? DEFAULT_DAEMON_URL).replace(/\/$/, "");
+  const daemonUrl = (environment.PERSIST_URL ?? DEFAULT_DAEMON_URL).replace(/\/$/, "");
   const query = input.includeOffline === true ? "?include_offline=true" : "";
   const response = yield* httpClient
     .execute(
@@ -208,7 +211,7 @@ export const readPersistFleet = Effect.fn("persist.readFleet")(function* (input:
   );
   return projectPersistFleetSnapshot(decoded, {
     generatedAt: DateTime.formatIso(yield* DateTime.now),
-    webUrl: process.env.PERSIST_WEB_URL,
+    webUrl: environment.PERSIST_WEB_URL,
     boardBySlug,
   });
 });

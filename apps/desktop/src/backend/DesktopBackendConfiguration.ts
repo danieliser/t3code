@@ -517,6 +517,7 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
     DesktopEnvironment.DesktopEnvironment | DesktopServerExposure.DesktopServerExposure
   > {
     const environment = yield* DesktopEnvironment.DesktopEnvironment;
+    const processEnvironment = yield* HostProcess.Environment;
     const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
     const backendExposure = yield* serverExposure.backendConfig;
 
@@ -561,7 +562,8 @@ const resolvePrimaryStartConfig = Effect.fn("desktop.backendConfiguration.resolv
         ...backendChildEnvPatch(),
         ...(environment.isPackaged
           ? {
-              NODE_OPTIONS: process.env.NODE_OPTIONS ?? DEFAULT_PACKAGED_BACKEND_NODE_OPTIONS,
+              NODE_OPTIONS:
+                processEnvironment.NODE_OPTIONS ?? DEFAULT_PACKAGED_BACKEND_NODE_OPTIONS,
             }
           : {}),
         ELECTRON_RUN_AS_NODE: "1",

@@ -68,6 +68,7 @@ import * as ElectronShell from "../electron/ElectronShell.ts";
 import * as ElectronTheme from "../electron/ElectronTheme.ts";
 import * as ElectronWindow from "../electron/ElectronWindow.ts";
 import * as MacPermissions from "../permissions/MacPermissions.ts";
+import * as DesktopRendererState from "../settings/DesktopRendererState.ts";
 import * as PreviewManager from "../preview/Manager.ts";
 
 it.effect.each([false, true])(
@@ -91,7 +92,15 @@ it.effect.each([false, true])(
         });
       const runApp = DesktopApp.program
         .pipe(
-          Effect.provide(NodeCrypto.layer),
+          Effect.provide(
+            Layer.mergeAll(
+              NodeCrypto.layer,
+              Layer.mock(DesktopRendererState.DesktopRendererState)({
+                get: () => Effect.succeedNone,
+                set: () => Effect.void,
+              }),
+            ),
+          ),
           Effect.provideService(DesktopAppIdentity.DesktopAppIdentity, {
             resolveUserDataPath: Effect.succeed("/isolated/userdata"),
             configure: record("identity"),

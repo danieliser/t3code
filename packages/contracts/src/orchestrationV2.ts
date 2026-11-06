@@ -3388,6 +3388,19 @@ export const OrchestrationV2Command = Schema.Union([
 ]);
 export type OrchestrationV2Command = typeof OrchestrationV2Command.Type;
 
+// External clients may omit provenance; transports stamp the authenticated actor before dispatch.
+export const OrchestrationV2ClientCommand = Schema.Unknown.pipe(
+  Schema.decodeTo(Schema.Unknown, {
+    decode: SchemaGetter.transform((command) =>
+      typeof command === "object" && command !== null && !Array.isArray(command)
+        ? { createdBy: "user", creationSource: "mcp", ...command }
+        : command,
+    ),
+    encode: SchemaGetter.transform((command) => command),
+  }),
+  Schema.decodeTo(OrchestrationV2Command),
+);
+
 // Excluded from dispatchCommand so only the server can send these.
 const OrchestrationV2InternalCommand = Schema.Union([
   // Guest share commands the server issues after checking T3 Connect and the guest token.
@@ -4231,7 +4244,7 @@ export const OrchestrationV2RpcSchemas = {
     output: OrchestrationV2SearchThreadResult,
   },
   dispatchCommand: {
-    input: OrchestrationV2Command,
+    input: OrchestrationV2ClientCommand,
     output: OrchestrationV2DispatchCommandResult,
   },
   getTurnDiff: {

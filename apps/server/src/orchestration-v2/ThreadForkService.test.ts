@@ -112,7 +112,10 @@ function makeSourceProjection(sourceRun: OrchestrationV2Run): OrchestrationV2Thr
 const planFork = (
   sourceRun: OrchestrationV2Run,
   sourceProjection = makeSourceProjection(sourceRun),
-  options: { readonly sideChat?: boolean } = {},
+  options: {
+    readonly sideChat?: boolean;
+    readonly sideChatRuntimeMode?: OrchestrationV2AppThread["runtimeMode"];
+  } = {},
 ) =>
   Effect.gen(function* () {
     const service = yield* ThreadForkService.ThreadForkServiceV2;
@@ -293,14 +296,14 @@ it.effect("rejects in-progress and rolled-back fork sources", () =>
   }),
 );
 
-it.effect("marks only requested forks as side chats and inherits parent permissions", () =>
+it.effect("applies configured side-chat permissions while ordinary forks inherit permissions", () =>
   Effect.gen(function* () {
     const sourceRun = makeSourceRun("completed");
     const sideChat = yield* planFork(sourceRun, makeSourceProjection(sourceRun), {
       sideChat: true,
     });
     assert.isTrue(sideChat.targetThread.lineage.sideChat);
-    assert.equal(sideChat.targetThread.runtimeMode, "full-access");
+    assert.equal(sideChat.targetThread.runtimeMode, "approval-required");
     for (const runtimeMode of [
       "approval-required",
       "auto-accept-edits",
@@ -314,7 +317,7 @@ it.effect("marks only requested forks as side chats and inherits parent permissi
           ...source,
           thread: { ...source.thread, runtimeMode },
         },
-        { sideChat: true },
+        { sideChat: true, sideChatRuntimeMode: runtimeMode },
       );
       assert.equal(inherited.targetThread.runtimeMode, runtimeMode);
     }

@@ -614,7 +614,7 @@ function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMetho
     : { ...state, pullRequestMergeMethod: method };
 }
 
-export function addThreadLabel(state: UiState, label: ThreadLabel): UiState {
+function addThreadLabel(state: UiState, label: ThreadLabel): UiState {
   const id = label.id.trim();
   const name = normalizeThreadLabelName(label.name);
   const color = normalizeThreadLabelColor(label.color);
@@ -635,12 +635,7 @@ export function addThreadLabel(state: UiState, label: ThreadLabel): UiState {
   };
 }
 
-export function updateThreadLabel(
-  state: UiState,
-  labelId: string,
-  name: string,
-  color: string,
-): UiState {
+function updateThreadLabel(state: UiState, labelId: string, name: string, color: string): UiState {
   const labelIndex = state.threadLabels.findIndex((label) => label.id === labelId);
   const normalizedName = normalizeThreadLabelName(name);
   const normalizedColor = normalizeThreadLabelColor(color);
@@ -670,7 +665,7 @@ export function updateThreadLabel(
   };
 }
 
-export function deleteThreadLabel(state: UiState, labelId: string): UiState {
+function deleteThreadLabel(state: UiState, labelId: string): UiState {
   if (!state.threadLabels.some((label) => label.id === labelId)) {
     return state;
   }
@@ -688,7 +683,7 @@ export function deleteThreadLabel(state: UiState, labelId: string): UiState {
   };
 }
 
-export function setThreadLabelAssigned(
+function setThreadLabelAssigned(
   state: UiState,
   threadKeys: string | readonly string[],
   labelId: string,
